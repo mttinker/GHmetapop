@@ -1,2 +1,2 @@
 # GHmetapop
-Gwaai Haanas Meta populaiton model
+Gwaai Haanas Meta population model
