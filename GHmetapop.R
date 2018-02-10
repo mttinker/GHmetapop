@@ -1,25 +1,28 @@
 # Gwaai Haanas sea otter meta-population model
+#
+# Load necessary libraries
 library(gtools)
 #
 # Load files --------------------------------------------------------------
-data = read.csv("Blockdata.csv", header = TRUE)
+data = read.csv("GHBlockdata.csv", header = TRUE)
 Demdat = read.csv("RandDem.csv", header = TRUE)
-SEmoves = read.csv("SE_Ottermoves.csv", header = TRUE)
-Distmat =  read.csv("Distmat.csv", header = FALSE)
-#
-# Inter-pop movement matrives: pairwise prob of dispersal based on 
+Distmat =  read.csv("GHDistmat.csv", header = FALSE)
+# Probabilities of dispersal from each block for each age/sex class
+DispP = read.csv("GHDispProb.csv", header = TRUE) 
+# Inter-pop movement matrices: pairwise prob of dispersal based on 
 #  pairwise distances and dispersal kernels for each age/sex class
-# destJF = read.csv("destJF.csv", header = FALSE);
-# destAF = read.csv("destAF.csv", header = FALSE);
-# destJM = read.csv("destJM.csv", header = FALSE);
-# destAM = read.csv("destAM.csv", header = FALSE);
+destJF = read.csv("GHDispMatJF.csv", header = FALSE) 
+destAF = read.csv("GHDispMatAF.csv", header = FALSE);
+destJM = read.csv("GHDispMatJM.csv", header = FALSE);
+destAM = read.csv("GHDispMatAM.csv", header = FALSE);
 #
 # Set User Parameters  ---------------------------------------------------------
 reps = 25            # Number replications for population sims
 Nyrs = 10            # Number of years to project population dynamics
 ImigratOpt = 0       # Immigration option: 0 = none, 1 = low, 2 = high
 V_mn = 3.5           # Population front asymptotic wavespeed, mean  
-V_sd = .75           # Population front asymptotic wavespeed, mean
+V_sd = 1             # Population front asymptotic wavespeed, std dev
+K_mean = 3.75        # Baseline mean K (can modify as fxn of habitat variables)
 Nstg = 4             # Number of age/sex classes 
 sig = 0.05           # Environmental stochasticity (std dev in log-lambda)
 vals = dim(Distmat)  # determine number of blocks and years
@@ -37,10 +40,10 @@ N0 = data$Startpop
 S = 4 # Number of age/sex classes 
 # Dispersal probabilities
 disp = matrix(data = NA,nrow = 4, ncol = P)
-disp[1,] = data$Jfdisp
-disp[2,] = data$Afdisp
-disp[3,] = data$Jmdisp
-disp[4,] = data$Amdisp
+disp[1,] = DispP$Jf
+disp[2,] = DispP$Af
+disp[3,] = DispP$Jm
+disp[4,] = DispP$Am
 #
 # Estimate K for each Block: 
 # NOTE: this will eventually be a function of habitat parameters
@@ -50,7 +53,7 @@ KV = numeric(length=P)
 Areahab = numeric(length=P)
 for(i in 1:P){
   Areahab[i] = data$Area[i] 
-  Kmn[i] = data$Kdens[i] 
+  Kmn[i] = K_mean
   Ksd[i] = 1
   KV[i] = Ksd[i]^2
 }
@@ -112,12 +115,12 @@ for (r in 1:reps){
     # Loop through unoccupied cells, see if they could be colonized
     for(k in 1:length(noc)){
        j = noc[k]
-       nAd = data$Nadj[j]
+       nAd = data$NAdj[j]
        # for each adjacent cell, see if its duration of occupation
        # is greater than alpha*Distance between centroids (ie would expect 
        #  range expansion into this new habitat)
       for (a in 1:nAd){
-        Adblk = data[j,10+a]
+        Adblk = data[j,5+a] # Assumes NAdj is in collumn 5 
         dst = Distmat[Adblk,j]  
         # Probability of colonization: logit fxn of years occupied relative to 
         #   movement of population front given assymptotic wave speed
