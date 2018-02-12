@@ -174,12 +174,12 @@ for (r in 1:reps){
         nt1 = pmax(zvec,nt1 + ni)
         # Next, Calculate number of dispersers (with stochasticity)
         # ****NOTE: no dispersal happens until pop established, and no more than
-        # 1/3 of block residsents can disperse in one year
+        # 1/2 of block residsents can disperse in one year
         if (y > YrsInit){
-          nd[1] = min(floor(nt1[1]/3),rpois(1,nt1[1]*disp[1,i]))
-          nd[2] = min(floor(nt1[2]/3),rpois(1,nt1[2]*disp[2,i]))
-          nd[3] = min(floor(nt1[3]/3),rpois(1,nt1[3]*disp[3,i]))
-          nd[4] = min(floor(nt1[4]/3),rpois(1,nt1[4]*disp[4,i]))
+          nd[1] = min(floor(nt1[1]/2),rpois(1,nt1[1]*disp[1,i]))
+          nd[2] = min(floor(nt1[2]/2),rpois(1,nt1[2]*disp[2,i]))
+          nd[3] = min(floor(nt1[3]/2),rpois(1,nt1[3]*disp[3,i]))
+          nd[4] = min(floor(nt1[4]/2),rpois(1,nt1[4]*disp[4,i]))
         } else {
           nd[1:4] = zvec
         }
