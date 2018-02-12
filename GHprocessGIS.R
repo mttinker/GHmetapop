@@ -43,6 +43,7 @@ write.table(Distmat, file = "Distmat.csv",row.names=FALSE,
 #  block i ends up in block j (0's along diagonal)
 #  ****CODE THIS AND SAVE RESULTS
 Wpar = matrix(0,nrow = 4,ncol = 2)
+Xpar = matrix(0,nrow = 4,ncol = 1)
 cntr = 0
 for (i in 1:2){
   for (j in 1:2){
@@ -50,10 +51,12 @@ for (i in 1:2){
     ii = which(SEmoves$SexN==i & SEmoves$Ageglass==j)
     xi = pmax(0.1,SEmoves$LCD_km[ii])
     fitd = fitdist(xi,"weibull")
-    plot(fitd)
-    cdfcomp(fitd, addlegend=FALSE)
+    fitx = fitdist(xi,"exp")
+    plot(fitx)
+    cdfcomp(fitx, addlegend=FALSE)
     Wpar[cntr,1] = fitd$estimate[1]
     Wpar[cntr,2] = fitd$estimate[2]  
+    Xpar[cntr,1] = fitx$estimate  
   }
 }
 
@@ -64,6 +67,7 @@ DispP$Jf = numeric(length =NBlk)
 DispP$Af = numeric(length =NBlk) 
 DispP$Jm = numeric(length =NBlk)
 DispP$Am = numeric(length =NBlk)
+DispPx = DispP
 for (i in 1:NBlk){
   dst = numeric(length = Bdata$NAdj[i])
   for (j in 1:Bdata$NAdj[i]){
@@ -74,6 +78,10 @@ for (i in 1:NBlk){
   DispP$Af[i] = 1-pweibull(mndst,Wpar[2,1],Wpar[2,2])
   DispP$Jm[i] = 1-pweibull(mndst,Wpar[3,1],Wpar[3,2])
   DispP$Am[i] = 1-pweibull(mndst,Wpar[4,1],Wpar[4,2])
+  DispPx$Jf[i] = 1-pexp(mndst,Xpar[1,1])
+  DispPx$Af[i] = 1-pexp(mndst,Xpar[2,1])
+  DispPx$Jm[i] = 1-pexp(mndst,Xpar[3,1])
+  DispPx$Am[i] = 1-pexp(mndst,Xpar[4,1])
 }
 Disp = DispP
 Disp[,2:5] = Disp[,2:5]^1.5
@@ -123,15 +131,6 @@ Divisor = rowSums(HabAvg)
 for (i in 1:NBlk){
   HabAvg[,i] = HabAvg[,i]/Divisor
 }
-# Back-up code - if LCD calculaiton explodes with large number of cell values
-# N100 = floor(Ncell/100)
-# Nremain = Ncell-N100*100
-# LCD=costDistance(trHAIDA,CELL,BLK) #calculates LCD matrix, distances cell to block centroid 
-# 
-# for (i in 2:N100){
-#   LCD=costDistance(trHAIDA,CELL[1:100],BLK)  
-# 
-#   
-# }
-  
-  
+HabAvg = data.frame(cbind(Cdata$PU_ID,HabAvg))
+colnames(HabAvg) = c('PU_ID',as.character(Bdata$BlockID))  
+write.csv(HabAvg,"HabAvg.csv",row.names = FALSE)  
