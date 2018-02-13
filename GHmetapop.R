@@ -1,6 +1,26 @@
 # Gwaai Haanas sea otter meta-population model
-#
-# Load necessary libraries
+# Summary:
+# 
+rm(list = ls())
+# Set User Parameters  ---------------------------------------------------------
+reps = 100           # Number replications for population sims (should use at least 100)
+Nyrs = 25            # Number of years to project population dynamics
+ImigratOpt = 1       # Immigration option: 0 = none, 1 = low, 2 = high
+MnImLo = 1           # Mean annual immigrants with low immigration option
+MnImHi = 3           # Mean annual immigrants with high immigration option
+V_mn = 2.5           # Population front asymptotic wavespeed, km/yr, min  
+V_mx = 5.5           # Population front asymptotic wavespeed, km/yr, max
+K_mean = 3.5         # Baseline mean K (can modify as fxn of habitat variables)
+K_sig = 2            # Standard deviation in local K (variation over space)
+sig = 0.05           # Environmental stochasticity (std dev in log-lambda)
+rmax = log(1.22)     # Maximin rate of growth = 22% per year
+theta = 1            # theta parameter for theta-logistic (1 = Ricker model, >1 = delayed DD) 
+Yr1 = 2018           # Calendar Year to begin simulations at
+Initpop = 10         # Number of animals in initial population (at least 2 adult females)
+Initblk = c(1)       # List of initially occupied bloaks: e.g. c(1) = Block 1 only
+# ~~~~~~END User parameters ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 
+# Load necessary libraries -------------------------------------------------
 library(gtools)
 library(BMS)
 library(boot)
@@ -20,28 +40,10 @@ destAF = read.csv("GHDispMatAF.csv", header = FALSE);
 destJM = read.csv("GHDispMatJM.csv", header = FALSE);
 destAM = read.csv("GHDispMatAM.csv", header = FALSE);
 #
-# Set User Parameters  ---------------------------------------------------------
-reps = 100           # Number replications for population sims (should use at least 100)
-Nyrs = 25            # Number of years to project population dynamics
-ImigratOpt = 1       # Immigration option: 0 = none, 1 = low, 2 = high
-MnImLo = 1           # Mean annual immigrtants with low immigration option
-MnImHi = 3           # Mean annual immigrtants with high immigration option
-V_mn = 2.5           # Population front asymptotic wavespeed, km/yr, min  
-V_mx = 5.5           # Population front asymptotic wavespeed, km/yr, max
-K_mean = 3.5         # Baseline mean K (can modify as fxn of habitat variables)
-K_sig = 2            # Standard deviation in local K (variation over space)
-sig = 0.05           # Environmental stochasticity (std dev in log-lambda)
-rmax = log(1.22)     # Maximin rate of growth = 22% per year
-theta = 1            # theta parameter for theta-logistic (1 = Ricker model, >1 = delayed DD) 
-Yr1 = 2018           # Calendar Year to begin simulations at
-Initpop = 10         # Number of animals in initial population (at least 2 adult females)
-Initblk = c(1)       # Block numbers of initially occupied bloaks: Block 1 only?
-# ~~~~~~END User parameters ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#
 # Process data ----------------------------------------------------------------
 Dispers = 3  # Over-Dispersion param for Neg Binomial # immigrants per year
-pparLo = Dispers/(Dispers+MnImLo)
-pparHi = Dispers/(Dispers+MnImHi)
+pparLo = Dispers/(Dispers+MnImLo/length(Initblk))
+pparHi = Dispers/(Dispers+MnImHi/length(Initblk))
 Years = c(Yr1:(Yr1+Nyrs-1))  
 Yrs = seq(1:Nyrs)
 Years = Yrs-1+Yr1
@@ -336,6 +338,6 @@ for (p in 1:P){
   BlockIDs[((p-1)*Nyrs+1):((p-1)*Nyrs+Nyrs)] = as.character(rep(data$Block[p],Nyrs))
 }
 Hab_Blocks <- data.frame(Block = BlockIDs, 
-                         Year=YearsALL,Mean =meansALL, 
+                         Year=YearsALL,Mean=meansALL, 
                          lower=LoALL,upper=HiALL,Density=dfDens$Density )
 write.csv(Hab_Blocks,'Results_GHblocks.csv')
