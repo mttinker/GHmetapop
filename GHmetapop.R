@@ -1,17 +1,26 @@
 # Gwaai Haanas sea otter meta-population model
-# Summary:
+# EXPLANATION
+# Model simulates growth of a recently colonized sea otter population at Gwaii Haanas.
+# Dynamics modeled for P coastal blocks (sub-populations) linked by dispersal, with
+# results of simulations then downscaled to 1km grid of coastal habitat cells. 
+# Stage-structed matrix model includes density-dependence, environmental stochasticity,
+# demographic stochasticity, immigration and dispersal, range expansion via diffusion,
+# and habitat-based variation in local equilibrium densities.
+# User provides model parameters, which should be informed by analyses of data from
+# sea otter populations elsewhere in BC and SE Alaska
 # 
 rm(list = ls())
 # Set User Parameters  ---------------------------------------------------------
 reps = 100           # Number replications for population sims (should use at least 100)
 Nyrs = 25            # Number of years to project population dynamics
 ImigratOpt = 1       # Immigration option: 0 = none, 1 = low, 2 = high
-MnImLo = 1           # Mean annual immigrants with low immigration option
-MnImHi = 3           # Mean annual immigrants with high immigration option
-V_mn = 2.5           # Population front asymptotic wavespeed, km/yr, min  
-V_mx = 5.5           # Population front asymptotic wavespeed, km/yr, max
-K_mean = 3           # Baseline mean K (can modify as fxn of habitat variables)
-K_sig = 1.5          # Standard deviation in local K (variation over space)
+MnImLo = 1           # Mean annual net immigrants with low immigration option
+MnImHi = 3           # Mean annual net immigrants with high immigration option
+V_mn = 2.5           # Population front asymptotic wavespeed, km/yr, minimum  
+V_mx = 5.5           # Population front asymptotic wavespeed, km/yr, maximum
+EstablishYmax = 10   # Maximum years before pop "established" (before spreading)
+K_mean = 3.5         # Overall mean K density (modified as fxn of habitat variables)
+K_sig = 1            # Standard deviation in local K (variation over space)
 sig = 0.05           # Environmental stochasticity (std dev in log-lambda)
 rmax = log(1.22)     # Maximin rate of growth = 22% per year
 theta = 1            # theta parameter for theta-logistic (1 = Ricker model, >1 = delayed DD) 
@@ -25,35 +34,42 @@ library(gtools)
 library(BMS)
 library(boot)
 library(ggplot2)
+library(ggrepel)
 library(ggmap)
 library(reshape2)
 library(rgdal)
 library(raster)
 #
-# Load files --------------------------------------------------------------
-data = read.csv("GHBlockdata.csv", header = TRUE)
-Cdata = read.csv("GHCelldata.csv", header = TRUE)
-Demdat = read.csv("RandDem.csv", header = TRUE)
-Distmat =  read.csv("Distmat.csv", header = FALSE)
+# Load files ----------------------------------------------------------------
+data = read.csv("GHBlockdata.csv", header = TRUE)  # Data on coastal blocks
+Cdata = read.csv("GHCelldata.csv", header = TRUE)  # Data on habitat cells
+Demdat = read.csv("RandDem.csv", header = TRUE)    # Stochastic vital rates
+Distmat =  read.csv("Distmat.csv", header = FALSE) # Inter-blk LCP distances
 # Probabilities of dispersal from each block for each age/sex class
 DispP = read.csv("GHDispProb.csv", header = TRUE) 
 # Inter-pop movement matrices: pairwise prob of dispersal based on 
-#  pairwise distances and dispersal kernels for each age/sex class
+#  pairwise LCP distances and dispersal kernels for each age/sex class
 destJF = read.csv("GHDispMatJF.csv", header = FALSE) 
 destAF = read.csv("GHDispMatAF.csv", header = FALSE);
 destJM = read.csv("GHDispMatJM.csv", header = FALSE);
 destAM = read.csv("GHDispMatAM.csv", header = FALSE);
+# Matrix used for weighted averaging of habitat cells 
+# (for downscaling from Habitat Blocks)
 Habavg = read.csv("HabAvg.csv", header = TRUE);
-# HAIDA <- raster("HGland.grd") # Raster of Gwaii Haanas, NAD_1983_Albers (BC Environment)
+# Load GH map for plotting results
+load("GHlandPolygon.rdata")
+# HAIDA <- raster("HGland.grd") # Raster of Gwaii Haanas, NAD_1983_Albers 
 #
-# Process data ----------------------------------------------------------------
+# Process data ---------------------------------------------------------------
 Dispers = 2.5  # Over-Dispersion param for Neg Binomial # immigrants per year
+KV = K_sig^2  # Variance in K density
 pparLo = Dispers/(Dispers+MnImLo/length(Initblk))
 pparHi = Dispers/(Dispers+MnImHi/length(Initblk))
 Years = c(Yr1:(Yr1+Nyrs-1))  
 Yrs = seq(1:Nyrs)
 Years = Yrs-1+Yr1
 P = dim(Distmat)[1]  # number blocks (or sub-populations)
+# Initialize population vector
 N0 = numeric(length = P)
 for (i in 1:length(Initblk)){
   N0[Initblk[i]] = round(Initpop)/length(Initblk)
@@ -68,12 +84,13 @@ botm = as.character(Cdata$BT_Code)
 # Load params for habitat density at K fxn
 params = read.csv("Hab_params.csv")
 parms = params$Parms
-# Define Kcalc function
+# Define the "Kcalc" function, estimates local K density based on habitat variables
 Kcalc <- function(PUID,Blk,area,dep,botm,fetch,parms,Kmn){
-  b <- parms  
-  # Hab dens multiplier fxn: exp(b1*X1 + b2*X2... + bn*Xn)
+  # NOTE: Hab dens multiplier fxn: exp(b1*X1 + b2*X2... + bn*Xn)
+  #   Multiplier is used to adjust local K density for each cell 
+  b <- parms # Create parameter vector  
   # Depth part of fxn: b1*(-1*dep) - b2*dep^2
-  # where sum(area*exp(b1*(-1*dep)-b2*(dep^2)))/sum(area) =~ 1
+  #   where sum(area*exp(b1*(-1*dep)-b2*(dep^2)))/sum(area) =~ 1
   Depfxn = b[1]*(-1*dep) - b[2]*dep^2
   # Fetch part of fxn
   fch = fetch - mean(fetch)
@@ -83,17 +100,20 @@ Kcalc <- function(PUID,Blk,area,dep,botm,fetch,parms,Kmn){
   btfxn[which(botm=="2")] = b[7]; btfxn[which(botm=="2a")] = b[8]; btfxn[which(botm=="2b")] = b[9]
   btfxn[which(botm=="3")] = b[10]; btfxn[which(botm=="3a")] = b[11]; btfxn[which(botm=="3b")] = b[12]
   btfxn[which(botm=="0")] = b[13]
+  # Combine to terms to create multiplier for each hab cell
   mult = exp(Depfxn + Fchfxn + btfxn) 
-  # NOTE: sum((mult*area))/sum(area) should equal approx 1
+  # NOTE: sum((mult*area))/sum(area) should equal approx 1 (to maintain overall K_mean)
   Kdns = numeric(length = max(Blk))
   Ktot = numeric(length = max(Blk))
   AreaB = numeric(length = max(Blk))
+  # Loop thru coastal blocls to estimate total K and K_density
   for (i in 1:max(Blk)){
-    ii = which(Blk == i)
-    Kdns[i] = mean(Kmn*mult[ii])
-    Ktot[i] = sum(Kmn*area[ii]*mult[ii])
-    AreaB[i] = sum(area[ii])
-    Kdns[i] = Ktot[i]/sum(area[ii])
+    ii = which(Blk == i) # Select all hab cells in this Block
+    # Total K for block, Ktot: 
+    #  summed product of cell density (adjusted by multiplier) and cell area
+    Ktot[i] = sum(Kmn*mult[ii]*area[ii]) 
+    AreaB[i] = sum(area[ii]) # Total area of all hab cells in Block
+    Kdns[i] = Ktot[i]/sum(area[ii]) # Mean density for block
   }
   Habdns = data.frame(PUID = PUID, Reldens = mult)
   Ktab = data.frame(Block = seq(1:max(Blk)), Area = AreaB, 
@@ -101,6 +121,12 @@ Kcalc <- function(PUID,Blk,area,dep,botm,fetch,parms,Kmn){
   result <- list(Ktab=Ktab,Habdns=Habdns)
   return(result)
 }
+# Estimate K for each Block: 
+tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,parms,K_mean); 
+Ktab=tmp$Ktab; Habdns=tmp$Habdns; Areahab = Ktab$Area
+# *** NOTE: if including uncertainty in hab params, comment out next 2 lines:
+Kmn = Ktab$Kdns; 
+muK = log(Kmn/sqrt(1+KV/Kmn^2)); sigK = sqrt(log(1+KV/Kmn^2))
 # 
 # Dispersal probabilities
 disp = matrix(data = NA,nrow = 4, ncol = P)
@@ -109,12 +135,6 @@ disp[2,] = DispP$Af
 disp[3,] = DispP$Jm
 disp[4,] = DispP$Am
 #
-# Estimate K for each Block: 
-# NOTE: this will eventually be a function of habitat parameters
-tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,parms,K_mean); Ktab=tmp$Ktab; Habdns=tmp$Habdns
-Kmn = Ktab$Kdns; KV = K_sig^2
-muK = log(Kmn/sqrt(1+KV/Kmn^2)); sigK = sqrt(log(1+KV/Kmn^2))
-Areahab = Ktab$Area
 # *Create a default matrix with lambda ~1.22 (rmax)
 A = matrix(c(
   0.7176,    0.4608,    0,         0,
@@ -135,11 +155,11 @@ N = array(data = 0, c(P,Nyrs,reps))
 Nmn = matrix(0,nrow=P,ncol=Nyrs)
 Nmn[,1] = N0
 zvec = matrix(data = 0,nrow = 4, ncol = 1)
-
+#
 # Cycle through reps
 for (r in 1:reps){
   # Number of years of population establishment (before range expansion begins)
-  YrsInit = round(runif(1,2,10))
+  YrsInit = round(runif(1,3,EstablishYmax))
   # Determine wavespeed
   V = runif(1,V_mn,V_mx)
   alpha = 1/V
@@ -151,8 +171,8 @@ for (r in 1:reps){
   n = array(data = 0, c(4,P,Nyrs))
   nt = matrix(data = 0,nrow = 4, ncol = 1) 
   nd = matrix(data = 0,nrow = 4, ncol = 1)
-  # If uncertainty in params, include here:
-  # tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,parms,KDmean); Ktab=tmp$Ktab; Kmn = Ktab$Kdns
+  # *** NOTE: If including uncertainty in params, uncomment next 2 lines:
+  # tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,parms,KDmean); Kmn =tmp$Ktab$Kdns
   # muK = log(Kmn/sqrt(1+KV/Kmn^2)); sigK = sqrt(log(1+KV/Kmn^2))
   K = numeric(length = P)
   for (i in 1:P){
@@ -227,7 +247,7 @@ for (r in 1:reps){
         #
         # Next lines do matrix multiplication (within-block demog transitions)
         nt1 = round(AP%*%nt)
-        # ***NOTE: NEXT LINES ACCOUNT FOR IMMIGRATION 
+        # NEXT LINES ACCOUNT FOR IMMIGRATION 
         #  (Assumes outside immigrants arrive at initially occupied block(s) only)
         if (ImigratOpt > 0) {
           if (ImigratOpt == 1 & BlokOcc[i, 1] == 1) {
@@ -299,7 +319,6 @@ df_Dens <- melt(dfDens, id.vars = "Block")
 names(df_Dens)[2:3] <- c("Year", "Density")
 dfDens = df_Dens[with(df_Dens,order(Block,Year)),]; rm(df_Dens)
 dfDens$Block = as.factor(dfDens$Block)
-
 plt1 = ggplot(dfDens, aes(Year, Block)) +
   geom_tile(aes(fill = Density), color = "white") +
   scale_fill_gradient(low = "white", high = "steelblue") +
@@ -310,7 +329,8 @@ plt1 = ggplot(dfDens, aes(Year, Block)) +
         plot.title = element_text(size=16),
         axis.title=element_text(size=14,face="bold"),
         axis.text.x = element_text(angle = 90, hjust = 1)) +
-  labs(fill = "Mean Expected Density",title="Projected Density by Block (otters/km2)")
+  labs(fill = "Mean Expected Density",
+       title=paste0("Projected Density by Block (otters/km2) after ", Nyrs," Years"))
 print(plt1)
 
 # Trend plot of abundance over time
@@ -341,8 +361,6 @@ for(y in 2:Nyrs){
 }
 Pop_Overall <- data.frame(Year=Years,Mean=means,lower=Lo,upper=Hi,
                           SEmean=SEmean,CImeanLo=CImn[,1],CImeanHi=CImn[,2])
-write.csv(Pop_Overall,'Results_GHtot.csv',row.names = FALSE)
-
 titletxt = paste0("Sea Otter Population Projection, ", Nyrs," Years")
 plt2 = (ggplot(Pop_Overall, aes(Year, Mean))+
          geom_line(data=Pop_Overall)+
@@ -353,7 +371,10 @@ plt2 = (ggplot(Pop_Overall, aes(Year, Mean))+
          ggtitle(titletxt, subtitle="All of Gwaii Haanas"))
 print(plt2)
 
-# Summary For each block 
+# Output summary tables ---------------------------------------------------
+# Simmulation summary (Overall):
+write.csv(Pop_Overall,'Results_GHtot.csv',row.names = FALSE)
+# Calculate summary For each block 
 randsmp = sample(seq(1,reps),1000,replace = TRUE)
 meansALL = numeric(length=P*Nyrs)
 LoALL = numeric(length=P*Nyrs)
@@ -388,28 +409,41 @@ for (p in 1:P){
 Hab_Blocks <- data.frame(Block = BlockIDs, 
                          Year=YearsALL,Mean=meansALL, 
                          lower=LoALL,upper=HiALL,Density=dfDens$Density )
+# Output block summaries of simulation results:
 write.csv(Hab_Blocks,'Results_GHblocks.csv',row.names = FALSE)
-
+#
+# Downscale results to hab cells: density adjusted for local habitat variables 
+#  and averaged across nearby block centroids (weighted by inverse distance)
 Habdns$DensT = 0
 BlkDnsT = Hab_Blocks$Density[Hab_Blocks$Year==max(Years)]
 for (i in 1:length(Habdns$PUID)){
   Habdns$DensT[i] = Habdns$Reldens[i]*sum(BlkDnsT*as.numeric(Habavg[i,2:(P+1)]))
 }
+# Output cell summaries of simulation results:
 write.csv(Habdns,'Results_GHcells.csv',row.names = FALSE)
+#
+# Plot map of Results ---------------------------------------------------------
+# NOTE: GH land polygon created from shapefile using following 2 lines:
+# GHland<-readOGR("GH_Land_poly.shp", layer="GH_Land_poly")
+# GHland_df <- fortify(GHland)
 Cdata$DensT = Habdns$DensT
-
-# plot map of Results ---------------------------------------------------------
-GHland<-readOGR("GH_Land_poly.shp", layer="GH_Land_poly")
-GHland_df <- fortify(GHland)
 map <- ggplot() +
-  geom_polygon(data = GHland_df, 
-            aes(x = long, y = lat, group = group)) +
-  
-  # geom_point(aes(x=Xcoord, y=Ycoord, color=DensT), data=Cdata, alpha=1, size=1, color="grey20") +
   geom_point(aes(x=Xcoord, y=Ycoord, color=DensT), data=Cdata, alpha=1, size=1.5, shape=15)+
-  scale_colour_gradientn("Mean Density, Final Year", 
-                         colours=c( "#f9f3c2","#660000"))+ # change color scale
-  coord_equal(ratio=1) # square plot to avoid the distortion
+  scale_colour_gradientn(paste0("Mean Density, ", Nyrs," Years"), 
+                         colours=c( "#f9f3c2","#660000")) + # change color scale
+  geom_polygon(data = GHland_df, 
+               aes(x = long, y = lat, group = group)) +
+  coord_equal(ratio=1) + # square plot to avoid distortion
+  geom_label_repel(aes(x=Xcoord, y=Ycoord, label=BlockID),data=data,
+                    box.padding = 0.35, point.padding = 0.5,
+                    segment.color = 'red') +
+  # theme_classic(base_size = 10) +
+  # geom_text(aes(x=Xcoord, y=Ycoord, label=BlockID),data=data, hjust=0, vjust=0) +
+  xlab("East-west coordinate (BC Albers)") +
+  ylab("North-south coordinate (BC Albers)") +
+  ggtitle("Projected sea otter population density, Gwaii Haanas",
+          subtitle="Labels Indicate Coastal Block Centroids")
 print(map) 
+
 
 
