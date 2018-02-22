@@ -16,13 +16,13 @@ Nyrs = 25            # Number of years to project population dynamics
 ImigratOpt = 1       # Immigration option: 0 = none, 1 = low, 2 = high
 MnImLo = 1           # Mean annual net immigrants with low immigration option
 MnImHi = 3           # Mean annual net immigrants with high immigration option
-V_mn = 2.5           # Population front asymptotic wavespeed, km/yr, minimum  
-V_mx = 5.5           # Population front asymptotic wavespeed, km/yr, maximum
+V_mn = 2             # Population front asymptotic wavespeed, km/yr, minimum  
+V_mx = 3             # Population front asymptotic wavespeed, km/yr, maximum
 EstablishYmax = 10   # Maximum years before pop "established" (before spreading)
-K_mean = 3.5         # Overall mean K density (modified as fxn of habitat variables)
+K_mean = 2.5         # Overall mean K density (modified as fxn of habitat variables)
 K_sig = 1            # Standard deviation in local K (variation over space)
 sig = 0.05           # Environmental stochasticity (std dev in log-lambda)
-rmax = log(1.22)     # Maximin rate of growth = 22% per year
+rmax = log(1.22)     # Maximum rate of growth = 22% per year
 theta = 1            # theta parameter for theta-logistic (1 = Ricker model, >1 = delayed DD) 
 Yr1 = 2018           # Calendar Year to begin simulations at
 Initpop = 10         # Number of animals in initial population (at least 2 adult females)
@@ -37,8 +37,8 @@ library(ggplot2)
 library(ggrepel)
 library(ggmap)
 library(reshape2)
-library(rgdal)
-library(raster)
+# library(rgdal)
+# library(raster)
 #
 # Load files ----------------------------------------------------------------
 data = read.csv("GHBlockdata.csv", header = TRUE)  # Data on coastal blocks
@@ -159,7 +159,7 @@ zvec = matrix(data = 0,nrow = 4, ncol = 1)
 # Cycle through reps
 for (r in 1:reps){
   # Number of years of population establishment (before range expansion begins)
-  YrsInit = round(runif(1,3,EstablishYmax))
+  YrsInit = round(runif(1,round(EstablishYmax/2),EstablishYmax))
   # Determine wavespeed
   V = runif(1,V_mn,V_mx)
   alpha = 1/V
@@ -381,6 +381,7 @@ LoALL = numeric(length=P*Nyrs)
 HiALL = numeric(length=P*Nyrs)
 YearsALL = numeric(length=P*Nyrs)
 BlockIDs = character(length=P*Nyrs)
+BlockArea = numeric(length=P*Nyrs)
 for (p in 1:P){
   tmp = matrix(nrow=1000,ncol=Nyrs)
   for(r in 1:1000){
@@ -405,19 +406,27 @@ for (p in 1:P){
   HiALL[((p-1)*Nyrs+1):((p-1)*Nyrs+Nyrs)] = Hi
   YearsALL[((p-1)*Nyrs+1):((p-1)*Nyrs+Nyrs)] = Years
   BlockIDs[((p-1)*Nyrs+1):((p-1)*Nyrs+Nyrs)] = as.character(rep(data$Block[p],Nyrs))
+  BlockArea[((p-1)*Nyrs+1):((p-1)*Nyrs+Nyrs)] = rep(Areahab[p],Nyrs)
 }
-Hab_Blocks <- data.frame(Block = BlockIDs, 
-                         Year=YearsALL,Mean=meansALL, 
-                         lower=LoALL,upper=HiALL,Density=dfDens$Density )
+Hab_Blocks <- data.frame(Block = BlockIDs, Area = BlockArea, 
+                         Year=YearsALL, Mean=meansALL, 
+                         lower=LoALL,upper=HiALL,Density=dfDens$Density,
+                         DensityLO = LoALL/BlockArea, DensityHI = HiALL/BlockArea)
 # Output block summaries of simulation results:
 write.csv(Hab_Blocks,'Results_GHblocks.csv',row.names = FALSE)
 #
 # Downscale results to hab cells: density adjusted for local habitat variables 
 #  and averaged across nearby block centroids (weighted by inverse distance)
 Habdns$DensT = 0
+Habdns$DensT_Lo = 0
+Habdns$DensT_Hi = 0
 BlkDnsT = Hab_Blocks$Density[Hab_Blocks$Year==max(Years)]
+BlkDnsTLo = Hab_Blocks$DensityLO[Hab_Blocks$Year==max(Years)]
+BlkDnsTHi = Hab_Blocks$DensityHI[Hab_Blocks$Year==max(Years)]
 for (i in 1:length(Habdns$PUID)){
   Habdns$DensT[i] = Habdns$Reldens[i]*sum(BlkDnsT*as.numeric(Habavg[i,2:(P+1)]))
+  Habdns$DensT_Lo[i] = Habdns$Reldens[i]*sum(BlkDnsTLo*as.numeric(Habavg[i,2:(P+1)]))
+  Habdns$DensT_Hi[i] = Habdns$Reldens[i]*sum(BlkDnsTHi*as.numeric(Habavg[i,2:(P+1)]))
 }
 # Output cell summaries of simulation results:
 write.csv(Habdns,'Results_GHcells.csv',row.names = FALSE)
