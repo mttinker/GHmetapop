@@ -22,7 +22,7 @@ EstablishYmax = 10   # Maximum years before pop "established" (before spreading)
 K_mean = 2.5         # Overall mean K density (modified as fxn of habitat variables)
 K_sig = 1            # Standard deviation in local K (variation over space)
 sig = 0.05           # Environmental stochasticity (std dev in log-lambda)
-rmax = log(1.22)     # Maximum rate of growth = 22% per year
+rmax = log(1.22)     # Maximum rate of growth = 22% per year 
 theta = 1            # theta parameter for theta-logistic (1 = Ricker model, >1 = delayed DD) 
 Yr1 = 2018           # Calendar Year to begin simulations at
 Initpop = 10         # Number of animals in initial population (at least 2 adult females)
@@ -63,6 +63,7 @@ load("GHlandPolygon.rdata")
 # Process data ---------------------------------------------------------------
 Dispers = 2.5  # Over-Dispersion param for Neg Binomial # immigrants per year
 KV = K_sig^2  # Variance in K density
+rmax = min(log(1.22),rmax)
 pparLo = Dispers/(Dispers+MnImLo/length(Initblk))
 pparHi = Dispers/(Dispers+MnImHi/length(Initblk))
 Years = c(Yr1:(Yr1+Nyrs-1))  
@@ -137,10 +138,10 @@ disp[4,] = DispP$Am
 #
 # *Create a default matrix with lambda ~1.22 (rmax)
 A = matrix(c(
-  0.7176,    0.4608,    0,         0,
-  0.2524,    0.9800,    0,         0,
-  0,         0.4608,    0.7132,    0,
-  0,         0,         0.2468,    0.9700),byrow=T,ncol=4)    
+  0.5307,    0.4183,         0,         0,
+  0.4093,    0.9700,         0,         0,
+  0,         0.4183,    0.5110,         0,
+  0,         0,         0.3690,    0.9200),byrow=T,ncol=4)    
 W=eigen(A)$vector;          # W=matrix of right eigenvectors 
 lambdas=eigen(A)$values;    # lambdas=vector of eigenvalues
 lambda=max(Re(lambdas))		# lambda1=dominant eigenvalue, real part only
