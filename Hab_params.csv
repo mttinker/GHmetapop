@@ -2,13 +2,14 @@ ParamLab,Parms,Description
 beta1,0.045,Depth fxn first order term
 beta2,0.002,Depth fxn second order term
 beta3,-0.01,Effect of Fetch (neg mean lower density in high fetch area)
-beta4,0.05,"Relative dens, BotPatch = val 1"
-beta5,0.1,"Relative dens, BotPatch = val 1a"
-beta6,0.15,"Relative dens, BotPatch = val 1b"
-beta7,0,"Relative dens, BotPatch = val 2"
-beta8,0.05,"Relative dens, BotPatch = val 2a"
-beta9,0.1,"Relative dens, BotPatch = val 2b"
-beta10,-0.05,"Relative dens, BotPatch = val 3"
+beta4,0.1,"Relative dens, BotPatch = val 1"
+beta5,0.15,"Relative dens, BotPatch = val 1a"
+beta6,0.1,"Relative dens, BotPatch = val 1b"
+beta7,-0.05,"Relative dens, BotPatch = val 2"
+beta8,-0.05,"Relative dens, BotPatch = val 2a"
+beta9,0.05,"Relative dens, BotPatch = val 2b"
+beta10,-0.1,"Relative dens, BotPatch = val 3"
 beta11,-0.1,"Relative dens, BotPatch = val 3a"
-beta12,-0.15,"Relative dens, BotPatch = val 3b"
+beta12,-0.1,"Relative dens, BotPatch = val 3b"
 beta13,0,"Relative dens, BotPatch = val 0 (unknown)"
+beta14,0.15,Effect of eelgrass presence

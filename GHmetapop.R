@@ -11,18 +11,18 @@
 # 
 rm(list = ls())
 # Set User Parameters  ---------------------------------------------------------
-reps = 100           # Number replications for population sims (should use at least 100)
+reps = 500           # Number replications for population sims (should use at least 100)
 Nyrs = 25            # Number of years to project population dynamics
-ImigratOpt = 1       # Immigration option: 0 = none, 1 = low, 2 = high
+ImigratOpt = 2       # Immigration option: 0 = none, 1 = low, 2 = high
 MnImLo = 1           # Mean annual net immigrants with low immigration option
-MnImHi = 3           # Mean annual net immigrants with high immigration option
-V_mn = 2             # Population front asymptotic wavespeed, km/yr, minimum  
-V_mx = 3             # Population front asymptotic wavespeed, km/yr, maximum
-EstablishYmax = 10   # Maximum years before pop "established" (before spreading)
-K_mean = 2.5         # Overall mean K density (modified as fxn of habitat variables)
-K_sig = 1            # Standard deviation in local K (variation over space)
-sig = 0.05           # Environmental stochasticity (std dev in log-lambda)
-rmax = log(1.22)     # Maximum rate of growth = 22% per year 
+MnImHi = 5           # Mean annual net immigrants with high immigration option
+V_mn = 4             # Population front asymptotic wavespeed, km/yr, minimum  
+V_mx = 6             # Population front asymptotic wavespeed, km/yr, maximum
+Emax = 5            # Maximum years before pop "established" (and before range expansion begins)
+K_mean = 3.5         # Overall mean K density (modified as fxn of habitat variables)
+K_sig = 1            # Stochasticity in K (std. deviation in K density)
+sig = 0.05           # Environmental stochasticity (std. deviation in log-lambda)
+rmax = log(1.22)     # Maximum rate of growth: default = log(1.22), or 22% per year
 theta = 1            # theta parameter for theta-logistic (1 = Ricker model, >1 = delayed DD) 
 Yr1 = 2018           # Calendar Year to begin simulations at
 Initpop = 10         # Number of animals in initial population (at least 2 adult females)
@@ -73,7 +73,7 @@ P = dim(Distmat)[1]  # number blocks (or sub-populations)
 # Initialize population vector
 N0 = numeric(length = P)
 for (i in 1:length(Initblk)){
-  N0[Initblk[i]] = round(Initpop)/length(Initblk)
+  N0[Initblk[i]] = round(Initpop/length(Initblk))
 }
 #  Create Data variables for calculating relative density of Hab cells:
 PUID = Cdata$PU_ID
@@ -82,11 +82,12 @@ area = Cdata$Area
 dep = Cdata$DEPTH
 fetch = Cdata$Fetch
 botm = as.character(Cdata$BT_Code)
+egrass = Cdata$Eelgrass
 # Load params for habitat density at K fxn
 params = read.csv("Hab_params.csv")
 parms = params$Parms
 # Define the "Kcalc" function, estimates local K density based on habitat variables
-Kcalc <- function(PUID,Blk,area,dep,botm,fetch,parms,Kmn){
+Kcalc <- function(PUID,Blk,area,dep,botm,fetch,egrass,parms,Kmn){
   # NOTE: Hab dens multiplier fxn: exp(b1*X1 + b2*X2... + bn*Xn)
   #   Multiplier is used to adjust local K density for each cell 
   b <- parms # Create parameter vector  
@@ -96,11 +97,14 @@ Kcalc <- function(PUID,Blk,area,dep,botm,fetch,parms,Kmn){
   # Fetch part of fxn
   fch = fetch - mean(fetch)
   Fchfxn = b[3]*(fch) 
+  # Bottom patch part of function
   btfxn = numeric(length = length(botm))
   btfxn[which(botm=="1")] = b[4]; btfxn[which(botm=="1a")] = b[5]; btfxn[which(botm=="1b")] = b[6]
   btfxn[which(botm=="2")] = b[7]; btfxn[which(botm=="2a")] = b[8]; btfxn[which(botm=="2b")] = b[9]
   btfxn[which(botm=="3")] = b[10]; btfxn[which(botm=="3a")] = b[11]; btfxn[which(botm=="3b")] = b[12]
   btfxn[which(botm=="0")] = b[13]
+  # Eelgrass part of function
+  EGfxn =  b[14]*(egrass) 
   # Combine to terms to create multiplier for each hab cell
   mult = exp(Depfxn + Fchfxn + btfxn) 
   # NOTE: sum((mult*area))/sum(area) should equal approx 1 (to maintain overall K_mean)
@@ -122,9 +126,10 @@ Kcalc <- function(PUID,Blk,area,dep,botm,fetch,parms,Kmn){
   result <- list(Ktab=Ktab,Habdns=Habdns)
   return(result)
 }
-# Estimate K for each Block: 
-tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,parms,K_mean); 
+# Estimate mean K for each Block, and mu/sig for log-normal sampling of K: 
+tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,egrass,parms,K_mean); 
 Ktab=tmp$Ktab; Habdns=tmp$Habdns; Areahab = Ktab$Area
+# NOTE: sum((Habdns$Reldens*area))/sum(area) should =~ 1
 # *** NOTE: if including uncertainty in hab params, comment out next 2 lines:
 Kmn = Ktab$Kdns; 
 muK = log(Kmn/sqrt(1+KV/Kmn^2)); sigK = sqrt(log(1+KV/Kmn^2))
@@ -160,7 +165,7 @@ zvec = matrix(data = 0,nrow = 4, ncol = 1)
 # Cycle through reps
 for (r in 1:reps){
   # Number of years of population establishment (before range expansion begins)
-  YrsInit = round(runif(1,round(EstablishYmax/2),EstablishYmax))
+  E = round(runif(1,round(Emax/2),Emax))
   # Determine wavespeed
   V = runif(1,V_mn,V_mx)
   alpha = 1/V
@@ -173,7 +178,7 @@ for (r in 1:reps){
   nt = matrix(data = 0,nrow = 4, ncol = 1) 
   nd = matrix(data = 0,nrow = 4, ncol = 1)
   # *** NOTE: If including uncertainty in params, uncomment next 2 lines:
-  # tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,parms,KDmean); Kmn =tmp$Ktab$Kdns
+  # tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,egrass,parms,KDmean); Kmn =tmp$Ktab$Kdns
   # muK = log(Kmn/sqrt(1+KV/Kmn^2)); sigK = sqrt(log(1+KV/Kmn^2))
   K = numeric(length = P)
   for (i in 1:P){
@@ -209,7 +214,7 @@ for (r in 1:reps){
             # Probability of colonization: logit fxn of years occupied relative to 
             #   movement of population front given assymptotic wave speed
             # NOTE: assymtotic wave speed only obtained once exp growth is occuring
-            probexp = inv.logit(2*(sum(BlokOcc[Adblk,1:(y-1)])-alpha*dst))*max(0,sign(y-YrsInit))
+            probexp = inv.logit(2*(sum(BlokOcc[Adblk,1:(y-1)])-alpha*dst))*max(0,sign(y-E))
             BlokOcc[j,y] = max(BlokOcc[j,y],rbinom(1,1,probexp))
           }
         }
@@ -221,7 +226,7 @@ for (r in 1:reps){
         # Calculate D-D lambda (with stochasticity) and select appropriate vital rates
         lamstoch = max(.95,min(1.22, round(exp(rmax*(1-(N[i,y-1,r]/K[i])^theta)+rnorm(1,0,sig)),2)))
         # NOTE: early surveys indicate slow growth over first few years (allee effect):
-        idxs = which(round(Demdat$Lam,2) == lamstoch)
+        idxs = which(round(Demdat$Lam,2)==lamstoch)
         j = sample(idxs,1)
         br = Demdat$br2[j]; wr = Demdat$wr2[j];
         fsj = Demdat$fs1[j]; fsa = Demdat$fs2[j]; 
@@ -267,7 +272,7 @@ for (r in 1:reps){
         # Next, Calculate number of dispersers (with stochasticity)
         # ****NOTE: no dispersal happens until pop established, and no more than
         # 1/2 of block residsents can disperse in one year
-        if (y > YrsInit & sum(BlokOcc[,y])>1){
+        if (y > E & sum(BlokOcc[,y])>1){
           nd[1] = min(floor(nt1[1]/2),rpois(1,nt1[1]*disp[1,i]))
           nd[2] = min(floor(nt1[2]/2),rpois(1,nt1[2]*disp[2,i]))
           nd[3] = min(floor(nt1[3]/2),rpois(1,nt1[3]*disp[3,i]))
@@ -440,7 +445,8 @@ Cdata$DensT = Habdns$DensT
 map <- ggplot() +
   geom_point(aes(x=Xcoord, y=Ycoord, color=DensT), data=Cdata, alpha=1, size=1.5, shape=15)+
   scale_colour_gradientn(paste0("Mean Density, ", Nyrs," Years"), 
-                         colours=c( "#f9f3c2","#660000")) + # change color scale
+                         colours=c("lightyellow","gold","orange","orangered","red1","darkred"),
+                         values=c(0,.05,.2,.4,.6,.8,1)) + # change color scale
   geom_polygon(data = GHland_df, 
                aes(x = long, y = lat, group = group)) +
   coord_equal(ratio=1) + # square plot to avoid distortion
