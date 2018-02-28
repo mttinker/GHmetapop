@@ -6,7 +6,7 @@
 # Stage-structed matrix model includes density-dependence, environmental stochasticity,
 # demographic stochasticity, immigration and dispersal, range expansion via diffusion,
 # and habitat-based variation in local equilibrium densities.
-# User provides model parameters, which should be informed by analyses of data from
+# User provides model parameters, which are informed by analyses of data from
 # sea otter populations elsewhere in BC and SE Alaska
 # 
 rm(list = ls())
@@ -30,6 +30,7 @@ Initblk = c(1)       # List of initially occupied bloaks: e.g. c(1) = Block 1 on
 # ~~~~~~END User parameters ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 
 # Load necessary libraries -------------------------------------------------
+# NOTE: Ensure following packages are installed
 library(gtools)
 library(BMS)
 library(boot)
@@ -37,8 +38,6 @@ library(ggplot2)
 library(ggrepel)
 library(ggmap)
 library(reshape2)
-# library(rgdal)
-# library(raster)
 #
 # Load files ----------------------------------------------------------------
 data = read.csv("GHBlockdata.csv", header = TRUE)  # Data on coastal blocks
@@ -53,12 +52,13 @@ destJF = read.csv("GHDispMatJF.csv", header = FALSE)
 destAF = read.csv("GHDispMatAF.csv", header = FALSE);
 destJM = read.csv("GHDispMatJM.csv", header = FALSE);
 destAM = read.csv("GHDispMatAM.csv", header = FALSE);
-# Matrix used for weighted averaging of habitat cells 
-# (for downscaling from Habitat Blocks)
+# Matrix used for spatial weighted averaging of habitat cells 
+#  (ie. for downscaling results from Coastal Blocks to Habitat cells)
 Habavg = read.csv("HabAvg.csv", header = TRUE);
-# Load GH map for plotting results
+# Load parameters for habitat density at K function
+params = read.csv("Hab_params.csv")
+# Load GH map polygon for plotting results (NAD_1983_Albers)
 load("GHlandPolygon.rdata")
-# HAIDA <- raster("HGland.grd") # Raster of Gwaii Haanas, NAD_1983_Albers 
 #
 # Process data ---------------------------------------------------------------
 Dispers = 2.5  # Over-Dispersion param for Neg Binomial # immigrants per year
@@ -83,15 +83,13 @@ dep = Cdata$DEPTH
 fetch = Cdata$Fetch
 botm = as.character(Cdata$BT_Code)
 egrass = Cdata$Eelgrass
-# Load params for habitat density at K fxn
-params = read.csv("Hab_params.csv")
 parms = params$Parms
 # Define the "Kcalc" function, estimates local K density based on habitat variables
 Kcalc <- function(PUID,Blk,area,dep,botm,fetch,egrass,parms,Kmn){
   # NOTE: Hab dens multiplier fxn: exp(b1*X1 + b2*X2... + bn*Xn)
   #   Multiplier is used to adjust local K density for each cell 
   b <- parms # Create parameter vector  
-  # Depth part of fxn: b1*(-1*dep) - b2*dep^2
+  # Depth part of fxn: b1*(-1*dep) - b2*dep^2   (depth is in negative values)
   #   where sum(area*exp(b1*(-1*dep)-b2*(dep^2)))/sum(area) =~ 1
   Depfxn = b[1]*(-1*dep) - b[2]*dep^2
   # Fetch part of fxn
