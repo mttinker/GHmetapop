@@ -13,13 +13,13 @@ rm(list = ls())
 # Set User Parameters  ---------------------------------------------------------
 reps = 500           # Number replications for population sims (should use at least 100)
 Nyrs = 25            # Number of years to project population dynamics
-ImigratOpt = 2       # Immigration option: 0 = none, 1 = low, 2 = high
+ImigratOpt = 1       # Immigration option: 0 = none, 1 = low, 2 = high
 MnImLo = 1           # Mean annual net immigrants with low immigration option
 MnImHi = 5           # Mean annual net immigrants with high immigration option
-V_mn = 4             # Population front asymptotic wavespeed, km/yr, minimum  
-V_mx = 6             # Population front asymptotic wavespeed, km/yr, maximum
-Emax = 5            # Maximum years before pop "established" (and before range expansion begins)
-K_mean = 3.5         # Overall mean K density (modified as fxn of habitat variables)
+V_mn = 2             # Population front asymptotic wavespeed, km/yr, minimum  
+V_mx = 3             # Population front asymptotic wavespeed, km/yr, maximum
+Emax = 10            # Maximum years before pop "established" (and before range expansion begins)
+K_mean = 2.5         # Overall mean K density (modified as fxn of habitat variables)
 K_sig = 1            # Stochasticity in K (std. deviation in K density)
 sig = 0.05           # Environmental stochasticity (std. deviation in log-lambda)
 rmax = log(1.22)     # Maximum rate of growth: default = log(1.22), or 22% per year
@@ -84,6 +84,7 @@ fetch = Cdata$Fetch
 botm = as.character(Cdata$BT_Code)
 egrass = Cdata$Eelgrass
 parms = params$Parms
+Nparms = length(parms)
 # Define the "Kcalc" function, estimates local K density based on habitat variables
 Kcalc <- function(PUID,Blk,area,dep,botm,fetch,egrass,parms,Kmn){
   # NOTE: Hab dens multiplier fxn: exp(b1*X1 + b2*X2... + bn*Xn)
@@ -91,20 +92,19 @@ Kcalc <- function(PUID,Blk,area,dep,botm,fetch,egrass,parms,Kmn){
   b <- parms # Create parameter vector  
   # Depth part of fxn: b1*(-1*dep) - b2*dep^2   (depth is in negative values)
   #   where sum(area*exp(b1*(-1*dep)-b2*(dep^2)))/sum(area) =~ 1
-  Depfxn = b[1]*(-1*dep) - b[2]*dep^2
+  Depfxn = b[1] + b[2]*(-1*dep) - b[3]*dep^2
+  # Bottom patch part of function
+  Btfxn = numeric(length = length(botm))
+  Btfxn[which(botm=="1")] = b[4]; Btfxn[which(botm=="1a")] = b[5]; Btfxn[which(botm=="1b")] = b[6]
+  Btfxn[which(botm=="2")] = b[7]; Btfxn[which(botm=="2a")] = b[8]; Btfxn[which(botm=="2b")] = b[9]
+  Btfxn[which(botm=="3")] = b[10]; Btfxn[which(botm=="3a")] = b[11]; Btfxn[which(botm=="3b")] = b[12]
+  # Eelgrass part of function
+  EGfxn =  b[13]*(egrass) 
   # Fetch part of fxn
   fch = fetch - mean(fetch)
-  Fchfxn = b[3]*(fch) 
-  # Bottom patch part of function
-  btfxn = numeric(length = length(botm))
-  btfxn[which(botm=="1")] = b[4]; btfxn[which(botm=="1a")] = b[5]; btfxn[which(botm=="1b")] = b[6]
-  btfxn[which(botm=="2")] = b[7]; btfxn[which(botm=="2a")] = b[8]; btfxn[which(botm=="2b")] = b[9]
-  btfxn[which(botm=="3")] = b[10]; btfxn[which(botm=="3a")] = b[11]; btfxn[which(botm=="3b")] = b[12]
-  btfxn[which(botm=="0")] = b[13]
-  # Eelgrass part of function
-  EGfxn =  b[14]*(egrass) 
+  Fchfxn = b[14]*(fch) 
   # Combine to terms to create multiplier for each hab cell
-  mult = exp(Depfxn + Fchfxn + btfxn) 
+  mult = exp(Depfxn + Btfxn + EGfxn + Fchfxn) 
   # NOTE: sum((mult*area))/sum(area) should equal approx 1 (to maintain overall K_mean)
   Kdns = numeric(length = max(Blk))
   Ktot = numeric(length = max(Blk))
@@ -128,9 +128,10 @@ Kcalc <- function(PUID,Blk,area,dep,botm,fetch,egrass,parms,Kmn){
 tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,egrass,parms,K_mean); 
 Ktab=tmp$Ktab; Habdns=tmp$Habdns; Areahab = Ktab$Area
 # NOTE: sum((Habdns$Reldens*area))/sum(area) should =~ 1
+#  sum((Habdns$Reldens*area))/sum(area)
 # *** NOTE: if including uncertainty in hab params, comment out next 2 lines:
-Kmn = Ktab$Kdns; 
-muK = log(Kmn/sqrt(1+KV/Kmn^2)); sigK = sqrt(log(1+KV/Kmn^2))
+# Kmn = Ktab$Kdns; 
+# muK = log(Kmn/sqrt(1+KV/Kmn^2)); sigK = sqrt(log(1+KV/Kmn^2))
 # 
 # Dispersal probabilities
 disp = matrix(data = NA,nrow = 4, ncol = P)
@@ -175,9 +176,10 @@ for (r in 1:reps){
   n = array(data = 0, c(4,P,Nyrs))
   nt = matrix(data = 0,nrow = 4, ncol = 1) 
   nd = matrix(data = 0,nrow = 4, ncol = 1)
+  parms = runif(Nparms,params$ParmLo,params$ParmHi)
   # *** NOTE: If including uncertainty in params, uncomment next 2 lines:
-  # tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,egrass,parms,KDmean); Kmn =tmp$Ktab$Kdns
-  # muK = log(Kmn/sqrt(1+KV/Kmn^2)); sigK = sqrt(log(1+KV/Kmn^2))
+  tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,egrass,parms,K_mean); Kmn =tmp$Ktab$Kdns
+  muK = log(Kmn/sqrt(1+KV/Kmn^2)); sigK = sqrt(log(1+KV/Kmn^2))
   K = numeric(length = P)
   for (i in 1:P){
     K[i] = rlnorm(1,muK[i],sigK[i])*Areahab[i]
@@ -231,9 +233,9 @@ for (r in 1:reps){
         msj = Demdat$ms1[j]; msa = Demdat$ms2[j];
         gf = Demdat$Gf[j]; gm = Demdat$Gm[j];
         nt[1:4,] = n[1:4,i,y-1]  
-        # Account for demographic stochasticity
-        if(sum(nt)<25 & nt[2]>0){ 
-          juvs = round(nt[2]*br*wr*fsa)
+        # Account for demographic stochasticity in R
+        if(sum(nt)<50 & nt[2]>0){ 
+          juvs = rbinom(1,nt[2],br*wr*fsa)
           Fjuvs = rbinom(1,juvs,.5)
           Mjuvs = juvs-Fjuvs
           FF= Fjuvs/nt[2]
