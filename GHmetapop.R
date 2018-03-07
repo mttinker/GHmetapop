@@ -13,13 +13,11 @@ rm(list = ls())
 # Set User Parameters  ---------------------------------------------------------
 reps = 500           # Number replications for population sims (should use at least 100)
 Nyrs = 25            # Number of years to project population dynamics
-ImigratOpt = 1       # Immigration option: 0 = none, 1 = low, 2 = high
-MnImLo = 1           # Mean annual net immigrants with low immigration option
-MnImHi = 5           # Mean annual net immigrants with high immigration option
-V_mn = 2             # Population front asymptotic wavespeed, km/yr, minimum  
-V_mx = 3             # Population front asymptotic wavespeed, km/yr, maximum
-Emax = 10            # Maximum years before pop "established" (and before range expansion begins)
-K_mean = 2.5         # Overall mean K density (modified as fxn of habitat variables)
+ImmRt = 3            # Immigration rate (avg. net new immigtants per year): 0 = none
+V_mn = 3             # Population front asymptotic wavespeed, km/yr, minimum  
+V_mx = 4             # Population front asymptotic wavespeed, km/yr, maximum
+Emax = 7             # Maximum years before pop "established" (and before range expansion begins)
+K_mean = 3           # Overall mean K density (modified as fxn of habitat variables)
 K_sig = 1            # Stochasticity in K (std. deviation in K density)
 sig = 0.05           # Environmental stochasticity (std. deviation in log-lambda)
 rmax = log(1.22)     # Maximum rate of growth: default = log(1.22), or 22% per year
@@ -64,8 +62,7 @@ load("GHlandPolygon.rdata")
 Dispers = 2.5  # Over-Dispersion param for Neg Binomial # immigrants per year
 KV = K_sig^2  # Variance in K density
 rmax = min(log(1.22),rmax)
-pparLo = Dispers/(Dispers+MnImLo/length(Initblk))
-pparHi = Dispers/(Dispers+MnImHi/length(Initblk))
+ppar = Dispers/(Dispers+ImmRt/length(Initblk))
 Years = c(Yr1:(Yr1+Nyrs-1))  
 Yrs = seq(1:Nyrs)
 Years = Yrs-1+Yr1
@@ -255,12 +252,9 @@ for (r in 1:reps){
         nt1 = round(AP%*%nt)
         # NEXT LINES ACCOUNT FOR IMMIGRATION 
         #  (Assumes outside immigrants arrive at initially occupied block(s) only)
-        if (ImigratOpt > 0) {
-          if (ImigratOpt == 1 & BlokOcc[i, 1] == 1) {
-            NImm = round(rnbinom(1,Dispers,pparLo))
-            ni = rmultinom(1, NImm, c(.1,.05,.4,.45))
-          }else if (ImigratOpt == 2 & BlokOcc[i, 1] == 1){
-            NImm = round(rnbinom(1,Dispers,pparHi))
+        if (ImmRt > 0) {
+          if (BlokOcc[i, 1] == 1) {
+            NImm = round(rnbinom(1,Dispers,ppar))
             ni = rmultinom(1, NImm, c(.1,.05,.4,.45))
           }else{
             ni = c(0, 0, 0, 0)
