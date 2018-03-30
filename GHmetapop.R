@@ -25,6 +25,8 @@ theta = 1            # theta parameter for theta-logistic (1 = Ricker model, >1 
 Yr1 = 2018           # Calendar Year to begin simulations at
 Initpop = 10         # Number of animals in initial population (at least 2 adult females)
 Initblk = c(1)       # List of initially occupied bloaks: e.g. c(1) = Block 1 only
+savename = c("Sc3")
+plotlab = c("Scenario 3")
 # ~~~~~~END User parameters ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 
 # Load necessary libraries -------------------------------------------------
@@ -38,8 +40,8 @@ library(ggmap)
 library(reshape2)
 #
 # Load files ----------------------------------------------------------------
-data = read.csv("GHBlockdata.csv", header = TRUE)  # Data on coastal blocks
-Cdata = read.csv("GHCelldata.csv", header = TRUE)  # Data on habitat cells
+data = read.csv("GHBlockdata.csv", header = TRUE)  # Data for coastal blocks
+Cdata = read.csv("GHCelldata.csv", header = TRUE)  # Data for habitat cells
 Demdat = read.csv("RandDem.csv", header = TRUE)    # Stochastic vital rates
 Distmat =  read.csv("Distmat.csv", header = FALSE) # Inter-blk LCP distances
 # Probabilities of dispersal from each block for each age/sex class
@@ -321,16 +323,20 @@ dfDens = df_Dens[with(df_Dens,order(Block,Year)),]; rm(df_Dens)
 dfDens$Block = as.factor(dfDens$Block)
 plt1 = ggplot(dfDens, aes(Year, Block)) +
   geom_tile(aes(fill = Density), color = "white") +
-  scale_fill_gradient(low = "white", high = "steelblue") +
+  scale_fill_gradient(low = "white", high = "steelblue",limits=c(0, 2.5)) +
   xlab("Year in Future") +
   ylab("Coastal Block #") +
   theme(legend.title = element_text(size = 10),
-        legend.text = element_text(size = 12),
-        plot.title = element_text(size=16),
-        axis.title=element_text(size=14,face="bold"),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(size=12,face="bold"),
+        axis.title=element_text(size=12),
+        axis.text.y = element_text(size=8),
         axis.text.x = element_text(angle = 90, hjust = 1)) +
   labs(fill = "Mean Expected Density",
-       title=paste0("Projected Density by Block (otters/km2) after ", Nyrs," Years"))
+       title=paste0("Projected Density by Block (otters/km2) after ", Nyrs," Years"),
+       subtitle=plotlab) +
+  ggtitle(paste0("Projected Density by Block (otters/km2) after ", Nyrs," Years"),
+          subtitle=plotlab)
 print(plt1)
 
 # Trend plot of abundance over time
@@ -366,14 +372,15 @@ plt2 = (ggplot(Pop_Overall, aes(Year, Mean))+
          geom_line(data=Pop_Overall)+
          geom_ribbon(data=Pop_Overall,aes(ymin=lower,ymax=upper),alpha=0.2)+
          geom_ribbon(data=Pop_Overall,aes(ymin=CImeanLo,ymax=CImeanHi),alpha=0.3)+
+         ylim(0,600) +  
          xlab("Year") +
          ylab("Expected Abundance") +
-         ggtitle(titletxt, subtitle="All of Gwaii Haanas"))
+         ggtitle(titletxt, subtitle=plotlab))
 print(plt2)
 
 # Output summary tables ---------------------------------------------------
 # Simmulation summary (Overall):
-write.csv(Pop_Overall,'Results_GHtot.csv',row.names = FALSE)
+write.csv(Pop_Overall,paste0('Results_GHtot_',savename,'.csv'),row.names = FALSE)
 # Calculate summary For each block 
 randsmp = sample(seq(1,reps),1000,replace = TRUE)
 meansALL = numeric(length=P*Nyrs)
@@ -413,7 +420,7 @@ Hab_Blocks <- data.frame(Block = BlockIDs, Area = BlockArea,
                          lower=LoALL,upper=HiALL,Density=dfDens$Density,
                          DensityLO = LoALL/BlockArea, DensityHI = HiALL/BlockArea)
 # Output block summaries of simulation results:
-write.csv(Hab_Blocks,'Results_GHblocks.csv',row.names = FALSE)
+write.csv(Hab_Blocks,paste0('Results_GHblocks_',savename,'.csv'),row.names = FALSE)
 #
 # Downscale results to hab cells: density adjusted for local habitat variables 
 #  and averaged across nearby block centroids (weighted by inverse distance)
@@ -429,30 +436,34 @@ for (i in 1:length(Habdns$PUID)){
   Habdns$DensT_Hi[i] = Habdns$Reldens[i]*sum(BlkDnsTHi*as.numeric(Habavg[i,2:(P+1)]))
 }
 # Output cell summaries of simulation results:
-write.csv(Habdns,'Results_GHcells.csv',row.names = FALSE)
+write.csv(Habdns,paste0('Results_GHcells_',savename,'.csv'),row.names = FALSE)
 #
 # Plot map of Results ---------------------------------------------------------
 # NOTE: GH land polygon created from shapefile using following 2 lines:
 # GHland<-readOGR("GH_Land_poly.shp", layer="GH_Land_poly")
 # GHland_df <- fortify(GHland)
-Cdata$DensT = Habdns$DensT
+Cdata$DensT = pmin(5.5,Habdns$DensT)
 map <- ggplot() +
   geom_point(aes(x=Xcoord, y=Ycoord, color=DensT), data=Cdata, alpha=1, size=1.5, shape=15)+
   scale_colour_gradientn(paste0("Mean Density, ", Nyrs," Years"), 
                          colours=c("lightyellow","gold","orange","orangered","red1","darkred"),
-                         values=c(0,.05,.2,.4,.6,.8,1)) + # change color scale
+                         values=c(0,.05,.2,.4,.6,.8,1), limits=c(0, 5.5)) + # change color scale
   geom_polygon(data = GHland_df, 
                aes(x = long, y = lat, group = group)) +
   coord_equal(ratio=1) + # square plot to avoid distortion
   geom_label_repel(aes(x=Xcoord, y=Ycoord, label=BlockID),data=data,
                     box.padding = 0.35, point.padding = 0.5,
                     segment.color = 'red') +
+  theme(legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(size=12,face="bold"),
+        axis.title=element_text(size=12)) +
   # theme_classic(base_size = 10) +
   # geom_text(aes(x=Xcoord, y=Ycoord, label=BlockID),data=data, hjust=0, vjust=0) +
   xlab("East-west coordinate (BC Albers)") +
   ylab("North-south coordinate (BC Albers)") +
-  ggtitle("Projected sea otter population density, Gwaii Haanas",
-          subtitle="Labels Indicate Coastal Block Centroids")
+  ggtitle(paste0("Sea Otter Projected Distribution, ", Nyrs," Years"),
+          subtitle=plotlab)
 print(map) 
 
 
