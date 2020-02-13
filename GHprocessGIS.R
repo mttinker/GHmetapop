@@ -10,18 +10,19 @@ library(fitdistrplus)
 #
 # Load Data ----------------------------------------------------------------------
 # Data for coastl blocks and habitat cells around Haida Gwaii
-Bdata = read.csv("GHBlockdata.csv", header = TRUE)
-Cdata = read.csv("GHCelldata.csv", header = TRUE)
+Bdata = read.csv("./data/GHBlockdata.csv", header = TRUE)
+Cdata = read.csv("./data/GHCelldata.csv", header = TRUE)
+Cdata$PU_ID = Cdata$Cell_ID
 # Import movement data from radio tagged sea otters in southern SE Alaska
 # to use for fitting sea otter dispersal kernels:
-SEmoves = read.csv("SE_Ottermoves.csv", header = TRUE)
+SEmoves = read.csv("./data/SE_Ottermoves.csv", header = TRUE)
 # matrix of x-y coordinates of coastl block centroids
 BLK = as.matrix(cbind(Bdata$Xcoord,Bdata$Ycoord))
-# matrix of x-y coordinates of coastl block centroids
+# matrix of x-y coordinates of grid cell centroids
 CELL = as.matrix(cbind(Cdata$Xcoord,Cdata$Ycoord))
 
 # Load Raster Map of Haida Gwaii and process for LCP distances ------------------
-HAIDA <- raster("HGland.grd") # Raster of Gwaii Haanas, NAD_1983_Albers (BC Environment)
+HAIDA <- raster("./data/HGland.grd") # Raster of Gwaii Haanas, NAD_1983_Albers (BC Environment)
 plot(HAIDA) #SEAK Raster
 points(BLK) #plots Block Centroid points
 # Process data for estimating least cost path (LCP) distances between points
@@ -33,7 +34,7 @@ EUC=rdist(BLK) #euclidian distances
 LCD=costDistance(trHAIDA,BLK,BLK) #calculates LCD matrix, pairwise block-block distances 
 Distmat = LCD/1000   # Convert pairwise LCP distances to km
 # Save matrix as csv file to load in metapopulaiton model
-write.table(Distmat, file = "Distmat.csv",row.names=FALSE, 
+write.table(Distmat, file = "./data/Distmat.csv",row.names=FALSE, 
             na="",col.names=FALSE, sep=",")
 
 # Compute Dispersal parameters--------------------------------------------------
@@ -52,14 +53,13 @@ for (i in 1:2){
     xi = pmax(0.1,SEmoves$LCD_km[ii])
     fitd = fitdist(xi,"weibull")
     fitx = fitdist(xi,"exp")
-    plot(fitx)
+    plot(fitd)
     cdfcomp(fitx, addlegend=FALSE)
     Wpar[cntr,1] = fitd$estimate[1]
     Wpar[cntr,2] = fitd$estimate[2]  
     Xpar[cntr,1] = fitx$estimate  
   }
 }
-
 # Save DispP to GHDispProb.csv
 NBlk = length(Bdata$BlockID)
 DispP = data.frame(Block = Bdata$BlockID)
@@ -69,11 +69,7 @@ DispP$Jm = numeric(length =NBlk)
 DispP$Am = numeric(length =NBlk)
 DispPx = DispP
 for (i in 1:NBlk){
-  dst = numeric(length = Bdata$NAdj[i])
-  for (j in 1:Bdata$NAdj[i]){
-    dst[j] = Distmat[Bdata[i,5+j],i]
-  }
-  mndst = median(dst)
+  mndst = mean(sort(Distmat[,i],decreasing=F)[2:3])
   DispP$Jf[i] = 1-pweibull(mndst,Wpar[1,1],Wpar[1,2])
   DispP$Af[i] = 1-pweibull(mndst,Wpar[2,1],Wpar[2,2])
   DispP$Jm[i] = 1-pweibull(mndst,Wpar[3,1],Wpar[3,2])
@@ -85,7 +81,7 @@ for (i in 1:NBlk){
 }
 Disp = DispP
 Disp[,2:5] = Disp[,2:5]^1.5
-write.csv(Disp,"GHDispProb.csv",row.names = FALSE)
+write.csv(Disp,"./data/GHDispProb.csv",row.names = FALSE)
 # Inter-pop dispersal matrices for each age/sex class
 #  (save each as matrix using write.table)
 GHDispMatJF = 1-pweibull(Distmat,Wpar[1,1],Wpar[1,2])
@@ -106,31 +102,29 @@ for (i in 1:NBlk){
   GHDispMatJM[,i] = GHDispMatJM[,i]/SumJM[i]
   GHDispMatAM[,i] = GHDispMatAM[,i]/SumAM[i]  
 }
-write.table(GHDispMatJF, file = "GHDispMatJF.csv",row.names=FALSE, 
+write.table(GHDispMatJF, file = "./data/GHDispMatJF.csv",row.names=FALSE, 
             na="",col.names=FALSE, sep=",")
-write.table(GHDispMatAF, file = "GHDispMatAF.csv",row.names=FALSE, 
+write.table(GHDispMatAF, file = "./data/GHDispMatAF.csv",row.names=FALSE, 
             na="",col.names=FALSE, sep=",")
-write.table(GHDispMatJM, file = "GHDispMatJM.csv",row.names=FALSE, 
+write.table(GHDispMatJM, file = "./data/GHDispMatJM.csv",row.names=FALSE, 
             na="",col.names=FALSE, sep=",")
-write.table(GHDispMatAM, file = "GHDispMatAM.csv",row.names=FALSE, 
+write.table(GHDispMatAM, file = "./data/GHDispMatAM.csv",row.names=FALSE, 
             na="",col.names=FALSE, sep=",")
-
 # Calculate pairwise LCP distances from each hab cell to each block centroid -----
 #  (for use in interpolating densities by weighted averaging) 
-#
-NCell = length(Cdata$PU_ID)
-LCD=costDistance(trHAIDA,CELL,BLK) #calculates LCD matrix, distances cell to block centroid 
-DistmatHab = as.data.frame(LCD/1000)
-#
-# Create "HabAvg" matrix: uses inverse distance^2 weighting,
-# for row i, col j, value represents proportional contribution for block j 
-# on habitat call i
-tmp = DistmatHab^2
-HabAvg = 1/(tmp+0.000001)
-Divisor = rowSums(HabAvg)
-for (i in 1:NBlk){
-  HabAvg[,i] = HabAvg[,i]/Divisor
-}
-HabAvg = data.frame(cbind(Cdata$PU_ID,HabAvg))
-colnames(HabAvg) = c('PU_ID',as.character(Bdata$BlockID))  
-write.csv(HabAvg,"HabAvg.csv",row.names = FALSE)  
+# NOTE: NO LONGER USING THIS
+# LCD=costDistance(trHAIDA,CELL,BLK) #calculates LCD matrix, distances cell to block centroid 
+# DistmatHab = as.data.frame(LCD/1000)
+# #
+# # Create "HabAvg" matrix: uses inverse distance^2 weighting,
+# # for row i, col j, value represents proportional contribution for block j 
+# # on habitat call i
+# tmp = DistmatHab^2
+# HabAvg = 1/(tmp+0.000001)
+# Divisor = rowSums(HabAvg)
+# for (i in 1:NBlk){
+#   HabAvg[,i] = HabAvg[,i]/Divisor
+# }
+# HabAvg = data.frame(cbind(Cdata$PU_ID,HabAvg))
+# colnames(HabAvg) = c('PU_ID',as.character(Bdata$BlockID))  
+# write.csv(HabAvg,"HabAvg.csv",row.names = FALSE)  

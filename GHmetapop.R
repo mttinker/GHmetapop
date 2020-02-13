@@ -11,22 +11,20 @@
 # 
 rm(list = ls())
 # Set User Parameters  ---------------------------------------------------------
-reps = 500           # Number replications for population sims (should use at least 100)
+reps = 100           # Number replications for population sims (should use at least 100)
 Nyrs = 25            # Number of years to project population dynamics
-ImmRt = 3            # Immigration rate (avg. net new immigtants per year): 0 = none
-V_mn = 3             # Population front asymptotic wavespeed, km/yr, minimum  
-V_mx = 4             # Population front asymptotic wavespeed, km/yr, maximum
+ImmRt = 0            # Immigration rate (avg. net new immigtants per year): 0 = none
+V_sp = 3             # Population front asymptotic wavespeed, km/yr, minimum  
 Emax = 7             # Maximum years before pop "established" (and before range expansion begins)
 K_mean = 3           # Overall mean K density (modified as fxn of habitat variables)
 K_sig = 1            # Stochasticity in K (std. deviation in K density)
 sig = 0.05           # Environmental stochasticity (std. deviation in log-lambda)
 rmax = log(1.22)     # Maximum rate of growth: default = log(1.22), or 22% per year
 theta = 1            # theta parameter for theta-logistic (1 = Ricker model, >1 = delayed DD) 
-Yr1 = 2018           # Calendar Year to begin simulations at
-Initpop = 10         # Number of animals in initial population (at least 2 adult females)
-Initblk = c(1)       # List of initially occupied bloaks: e.g. c(1) = Block 1 only
+Initpop = 20         # Number of animals in initial population (at least 2 adult females)
+Initblk = c(1,2,4)   # List of initially occupied bloaks: e.g. c(1) = Block 1 only
 savename = c("Sc3")
-plotlab = c("Scenario 3")
+plotlab = c("Scenario 1")
 # ~~~~~~END User parameters ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 
 # Load necessary libraries -------------------------------------------------
@@ -35,32 +33,34 @@ library(gtools)
 library(BMS)
 library(boot)
 library(ggplot2)
+library(rgdal)
+library(dplyr) 
 library(ggrepel)
-library(ggmap)
+library(ggsn)
 library(reshape2)
 #
 # Load files ----------------------------------------------------------------
-data = read.csv("GHBlockdata.csv", header = TRUE)  # Data for coastal blocks
-Cdata = read.csv("GHCelldata.csv", header = TRUE)  # Data for habitat cells
-Demdat = read.csv("RandDem.csv", header = TRUE)    # Stochastic vital rates
-Distmat =  read.csv("Distmat.csv", header = FALSE) # Inter-blk LCP distances
+data = read.csv("./data/GHBlockdata.csv", header = TRUE)  # Data for coastal blocks
+Cdata = read.csv("./data/GHCelldata.csv", header = TRUE)  # Data for habitat cells
+Demdat = read.csv("./data/RandDem.csv", header = TRUE)    # Stochastic vital rates
+Distmat =  read.csv("./data/Distmat.csv", header = FALSE) # Inter-blk LCP distances
 # Probabilities of dispersal from each block for each age/sex class
-DispP = read.csv("GHDispProb.csv", header = TRUE) 
+DispP = read.csv("./data/GHDispProb.csv", header = TRUE) 
 # Inter-pop movement matrices: pairwise prob of dispersal based on 
 #  pairwise LCP distances and dispersal kernels for each age/sex class
-destJF = read.csv("GHDispMatJF.csv", header = FALSE) 
-destAF = read.csv("GHDispMatAF.csv", header = FALSE);
-destJM = read.csv("GHDispMatJM.csv", header = FALSE);
-destAM = read.csv("GHDispMatAM.csv", header = FALSE);
-# Matrix used for spatial weighted averaging of habitat cells 
-#  (ie. for downscaling results from Coastal Blocks to Habitat cells)
-Habavg = read.csv("HabAvg.csv", header = TRUE);
+destJF = read.csv("./data/GHDispMatJF.csv", header = FALSE) 
+destAF = read.csv("./data/GHDispMatAF.csv", header = FALSE);
+destJM = read.csv("./data/GHDispMatJM.csv", header = FALSE);
+destAM = read.csv("./data/GHDispMatAM.csv", header = FALSE);
 # Load parameters for habitat density at K function
-params = read.csv("Hab_params.csv")
-# Load GH map polygon for plotting results (NAD_1983_Albers)
-load("GHlandPolygon.rdata")
+params = read.csv("./data/Hab_params.csv")
+# Load GIS data for plotting results (NAD_1983_Albers)
+load("./data/GISdata.rdata")
 #
 # Process data ---------------------------------------------------------------
+Yr1 = as.numeric(format(Sys.Date(), "%Y"))
+V_mn = max(.5,V_sp-1)
+V_mx = min(8,V_sp+1)
 Dispers = 2.5  # Over-Dispersion param for Neg Binomial # immigrants per year
 KV = K_sig^2  # Variance in K density
 rmax = min(log(1.22),rmax)
@@ -75,12 +75,16 @@ for (i in 1:length(Initblk)){
   N0[Initblk[i]] = round(Initpop/length(Initblk))
 }
 #  Create Data variables for calculating relative density of Hab cells:
+Cdata$PU_ID = Cdata$Cell_ID
 PUID = Cdata$PU_ID
 Blk = Cdata$BlockID
 area = Cdata$Area
-dep = Cdata$DEPTH
+dep = Cdata$Depth
 fetch = Cdata$Fetch
-botm = as.character(Cdata$BT_Code)
+c1 = which(colnames(Cdata)=="BoP_1")
+cF = which(colnames(Cdata)=="BoP_3b")
+botm = as.matrix(Cdata[,c1:cF])
+rm(c1,cF)
 egrass = Cdata$Eelgrass
 parms = params$Parms
 Nparms = length(parms)
@@ -93,15 +97,17 @@ Kcalc <- function(PUID,Blk,area,dep,botm,fetch,egrass,parms,Kmn){
   #   where sum(area*exp(b1*(-1*dep)-b2*(dep^2)))/sum(area) =~ 1
   Depfxn = b[1] + b[2]*(-1*dep) - b[3]*dep^2
   # Bottom patch part of function
-  Btfxn = numeric(length = length(botm))
-  Btfxn[which(botm=="1")] = b[4]; Btfxn[which(botm=="1a")] = b[5]; Btfxn[which(botm=="1b")] = b[6]
-  Btfxn[which(botm=="2")] = b[7]; Btfxn[which(botm=="2a")] = b[8]; Btfxn[which(botm=="2b")] = b[9]
-  Btfxn[which(botm=="3")] = b[10]; Btfxn[which(botm=="3a")] = b[11]; Btfxn[which(botm=="3b")] = b[12]
+  Btfxn = b[4]*botm[,1] + b[5]*botm[,2] + b[6]*botm[,3] +
+          b[7]*botm[,4] + b[8]*botm[,5] + b[9]*botm[,6] +
+          b[10]*botm[,7] + b[11]*botm[,8] + b[12]*botm[,9]
+  #  Btfxn = numeric(length = nrow(botm))
+  #  Btfxn[which(botm=="1")] = b[4]; Btfxn[which(botm=="1a")] = b[5]; Btfxn[which(botm=="1b")] = b[6]
+  #  Btfxn[which(botm=="2")] = b[7]; Btfxn[which(botm=="2a")] = b[8]; Btfxn[which(botm=="2b")] = b[9]
+  #  Btfxn[which(botm=="3")] = b[10]; Btfxn[which(botm=="3a")] = b[11]; Btfxn[which(botm=="3b")] = b[12]
   # Eelgrass part of function
   EGfxn =  b[13]*(egrass) 
   # Fetch part of fxn
-  fch = fetch - mean(fetch)
-  Fchfxn = b[14]*(fch) 
+  Fchfxn = b[14]*(fetch - 25) 
   # Combine to terms to create multiplier for each hab cell
   mult = exp(Depfxn + Btfxn + EGfxn + Fchfxn) 
   # NOTE: sum((mult*area))/sum(area) should equal approx 1 (to maintain overall K_mean)
@@ -202,19 +208,24 @@ for (r in 1:reps){
     if(sum(noc)>0){
       for(k in 1:length(noc)){
         j = noc[k]
-        nAd = data$NAdj[j]
-        # for each adjacent cell, see if its duration of occupation
+        iib = which(Distmat[,j]<50 & Distmat[,j]>0 & BlokOcc[,(y-1)]==1)
+        nAd = length(iib)
+        # for each neighbouring block, see if its duration of occupation
         # is greater than alpha*Distance between centroids (ie would expect 
         #  range expansion into this new habitat)
-        for (a in 1:nAd){
-          Adblk = data[j,5+a] # Assumes NAdj is in collumn 5 
-          if (sum(BlokOcc[Adblk,1:(y-1)])>0){
-            dst = Distmat[Adblk,j]  
-            # Probability of colonization: logit fxn of years occupied relative to 
-            #   movement of population front given assymptotic wave speed
-            # NOTE: assymtotic wave speed only obtained once exp growth is occuring
-            probexp = inv.logit(2*(sum(BlokOcc[Adblk,1:(y-1)])-alpha*dst))*max(0,sign(y-E))
-            BlokOcc[j,y] = max(BlokOcc[j,y],rbinom(1,1,probexp))
+        if(nAd==0){
+          BlokOcc[j,y] = 0
+        }else{
+          for (a in 1:nAd){
+            Adblk = iib[a]
+            if (sum(BlokOcc[Adblk,1:(y-1)])>0){
+              dst = Distmat[Adblk,j]  
+              # Probability of colonization: logit fxn of years occupied relative to 
+              #   movement of population front given assymptotic wave speed
+              # NOTE: assymtotic wave speed only obtained once exp growth is occuring
+              probexp = inv.logit(2*(sum(BlokOcc[Adblk,1:(y-1)])-alpha*dst))*max(0,sign(y-E))
+              BlokOcc[j,y] = max(BlokOcc[j,y],rbinom(1,1,probexp))
+            }
           }
         }
       }
@@ -224,7 +235,10 @@ for (r in 1:reps){
       if (BlokOcc[i, y] == 1){
         # Calculate D-D lambda (with stochasticity) and select appropriate vital rates
         lamstoch = max(.95,min(1.22, round(exp(rmax*(1-(N[i,y-1,r]/K[i])^theta)+rnorm(1,0,sig)),2)))
-        # NOTE: early surveys indicate slow growth over first few years (allee effect):
+        # NOTE: account for "population establishment" phase (allee effect):
+        if (y <= E){
+          lamstoch = max(.95,min(1.22, round(lamstoch^0.2,2)))
+        } 
         idxs = which(round(Demdat$Lam,2)==lamstoch)
         j = sample(idxs,1)
         br = Demdat$br2[j]; wr = Demdat$wr2[j];
@@ -321,14 +335,15 @@ df_Dens <- melt(dfDens, id.vars = "Block")
 names(df_Dens)[2:3] <- c("Year", "Density")
 dfDens = df_Dens[with(df_Dens,order(Block,Year)),]; rm(df_Dens)
 dfDens$Block = as.factor(dfDens$Block)
+maxD <- ceiling(100*max(dfDens$Density))/100
 plt1 = ggplot(dfDens, aes(Year, Block)) +
   geom_tile(aes(fill = Density), color = "white") +
-  scale_fill_gradient(low = "white", high = "steelblue",limits=c(0, 2.5)) +
+  scale_fill_gradient(low = "white", high = "steelblue",limits=c(0, maxD)) +
   xlab("Year in Future") +
   ylab("Coastal Block #") +
-  theme(legend.title = element_text(size = 10),
-        legend.text = element_text(size = 10),
-        plot.title = element_text(size=12,face="bold"),
+  theme(legend.title = element_text(size = 12),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size=14,face="bold"),
         axis.title=element_text(size=12),
         axis.text.y = element_text(size=8),
         axis.text.x = element_text(angle = 90, hjust = 1)) +
@@ -350,37 +365,38 @@ SEmean = numeric(length=Nyrs)
 Lo = numeric(length=Nyrs)
 Hi = numeric(length=Nyrs)
 CImn = matrix(0,nrow = Nyrs,ncol=2)
-means[1] = Nmn[1,1]
-Lo[1] = Nmn[1,1]
-Hi[1] = Nmn[1,1]
-CImn[1,1:2] = Nmn[1,1]
+means[1] = mean(colSums(N[,1,]))
+Lo[1] = mean(colSums(N[,1,]))
+Hi[1] = mean(colSums(N[,1,]))
+CImn[1,1:2] = sum(Nmn[,1])
 for(y in 2:Nyrs){
   Nsum = colSums(N[,y,])
-  bootobj = boot(Nsum, mean.fun, R=1000, sim="ordinary")
+  bootobj = boot(Nsum, mean.fun, R=500, sim="ordinary")
   means[y] = median(bootobj$t)
   SEmean[y] = sd(bootobj$t)
-  tmp = boot.ci(bootobj, type="bca"); CImn[y,] = tmp$bca[4:5]
-  bootobj = boot(Nsum, CIL.fun, R=100, sim="ordinary")
+  tmp = boot.ci(bootobj, type="bca", conf = 0.90); CImn[y,] = tmp$bca[4:5]
+  bootobj = boot(Nsum, CIL.fun, R=500, sim="ordinary")
   Lo[y] = median(bootobj$t)
-  bootobj = boot(Nsum, CIH.fun, R=100, sim="ordinary")
+  bootobj = boot(Nsum, CIH.fun, R=500, sim="ordinary")
   Hi[y] = median(bootobj$t)  
 }
 Pop_Overall <- data.frame(Year=Years,Mean=means,lower=Lo,upper=Hi,
-                          SEmean=SEmean,CImeanLo=CImn[,1],CImeanHi=CImn[,2])
+                        SEmean=SEmean,CImeanLo=CImn[,1],CImeanHi=CImn[,2])
 titletxt = paste0("Sea Otter Population Projection, ", Nyrs," Years")
+maxN = ceiling(Pop_Overall$upper[Nyrs]/100)*100
 plt2 = (ggplot(Pop_Overall, aes(Year, Mean))+
          geom_line(data=Pop_Overall)+
          geom_ribbon(data=Pop_Overall,aes(ymin=lower,ymax=upper),alpha=0.2)+
          geom_ribbon(data=Pop_Overall,aes(ymin=CImeanLo,ymax=CImeanHi),alpha=0.3)+
-         ylim(0,600) +  
+         ylim(0,maxN) +  
          xlab("Year") +
          ylab("Expected Abundance") +
-         ggtitle(titletxt, subtitle=plotlab))
+         ggtitle(titletxt, subtitle=plotlab)) + theme_classic(base_size = 12)
 print(plt2)
 
 # Output summary tables ---------------------------------------------------
 # Simmulation summary (Overall):
-write.csv(Pop_Overall,paste0('Results_GHtot_',savename,'.csv'),row.names = FALSE)
+# write.csv(Pop_Overall,paste0('Results_GHtot_',savename,'.csv'),row.names = FALSE)
 # Calculate summary For each block 
 randsmp = sample(seq(1,reps),1000,replace = TRUE)
 meansALL = numeric(length=P*Nyrs)
@@ -401,12 +417,12 @@ for (p in 1:P){
   Lo[1] = mean(tmp[,1])
   Hi[1] = mean(tmp[,1])
   for(y in 2:Nyrs){
-    dens = density(tmp[,y],adjust = 3)
-    CI = quantile(dens, probs=c(.05, .95))
+    # dens = as.numeric(density(tmp[,y],adjust = 3))
+    # CI =  quantile.density(dens, probs=c(.05, .95))
+    # Lo[y] <- max(0,as.numeric(CI[1]))
     # Lo[y] <- max(0,as.numeric(CI[1]))
     Lo[y] <- quantile(tmp[,y], probs=c(.05))
-    Hi[y] <- round(as.numeric(CI[2]))
-    means[y] <- mean(tmp[,y])
+    Hi[y] <- quantile(tmp[,y], probs=c(.95))
   }
   meansALL[((p-1)*Nyrs+1):((p-1)*Nyrs+Nyrs)] = means
   LoALL[((p-1)*Nyrs+1):((p-1)*Nyrs+Nyrs)] = Lo
@@ -419,52 +435,24 @@ Hab_Blocks <- data.frame(Block = BlockIDs, Area = BlockArea,
                          Year=YearsALL, Mean=meansALL, 
                          lower=LoALL,upper=HiALL,Density=dfDens$Density,
                          DensityLO = LoALL/BlockArea, DensityHI = HiALL/BlockArea)
-# Output block summaries of simulation results:
-write.csv(Hab_Blocks,paste0('Results_GHblocks_',savename,'.csv'),row.names = FALSE)
+# Output block summaries of simulation results 
+# write.csv(Hab_Blocks,paste0('Results_GHblocks_',savename,'.csv'),row.names = FALSE)
 #
-# Downscale results to hab cells: density adjusted for local habitat variables 
-#  and averaged across nearby block centroids (weighted by inverse distance)
-Habdns$DensT = 0
-Habdns$DensT_Lo = 0
-Habdns$DensT_Hi = 0
-BlkDnsT = Hab_Blocks$Density[Hab_Blocks$Year==max(Years)]
-BlkDnsTLo = Hab_Blocks$DensityLO[Hab_Blocks$Year==max(Years)]
-BlkDnsTHi = Hab_Blocks$DensityHI[Hab_Blocks$Year==max(Years)]
-for (i in 1:length(Habdns$PUID)){
-  Habdns$DensT[i] = Habdns$Reldens[i]*sum(BlkDnsT*as.numeric(Habavg[i,2:(P+1)]))
-  Habdns$DensT_Lo[i] = Habdns$Reldens[i]*sum(BlkDnsTLo*as.numeric(Habavg[i,2:(P+1)]))
-  Habdns$DensT_Hi[i] = Habdns$Reldens[i]*sum(BlkDnsTHi*as.numeric(Habavg[i,2:(P+1)]))
-}
-# Output cell summaries of simulation results:
-write.csv(Habdns,paste0('Results_GHcells_',savename,'.csv'),row.names = FALSE)
-#
-# Plot map of Results ---------------------------------------------------------
-# NOTE: GH land polygon created from shapefile using following 2 lines:
-# GHland<-readOGR("GH_Land_poly.shp", layer="GH_Land_poly")
-# GHland_df <- fortify(GHland)
-Cdata$DensT = pmin(5.5,Habdns$DensT)
-map <- ggplot() +
-  geom_point(aes(x=Xcoord, y=Ycoord, color=DensT), data=Cdata, alpha=1, size=1.5, shape=15)+
-  scale_colour_gradientn(paste0("Mean Density, ", Nyrs," Years"), 
-                         colours=c("lightyellow","gold","orange","orangered","red1","darkred"),
-                         values=c(0,.05,.2,.4,.6,.8,1), limits=c(0, 5.5)) + # change color scale
-  geom_polygon(data = GHland_df, 
-               aes(x = long, y = lat, group = group)) +
-  coord_equal(ratio=1) + # square plot to avoid distortion
-  geom_label_repel(aes(x=Xcoord, y=Ycoord, label=BlockID),data=data,
-                    box.padding = 0.35, point.padding = 0.5,
-                    segment.color = 'red') +
-  theme(legend.title = element_text(size = 10),
-        legend.text = element_text(size = 10),
-        plot.title = element_text(size=12,face="bold"),
-        axis.title=element_text(size=12)) +
-  # theme_classic(base_size = 10) +
-  # geom_text(aes(x=Xcoord, y=Ycoord, label=BlockID),data=data, hjust=0, vjust=0) +
-  xlab("East-west coordinate (BC Albers)") +
-  ylab("North-south coordinate (BC Albers)") +
-  ggtitle(paste0("Sea Otter Projected Distribution, ", Nyrs," Years"),
-          subtitle=plotlab)
-print(map) 
-
-
+# MAP OUTPUT:  ------------------------------------------------------
+endvals = Hab_Blocks[Hab_Blocks$Year==max(YearsALL),c(1,7)]
+HGblk = merge(HGblk, endvals, by.x='BlockID', by.y = 'Block')
+ggplot() + 
+  geom_polygon(data=HGblk, aes(x = long, y = lat, fill = Density, color=Density, group = group),
+               alpha = 1,size = 1) +
+  scale_fill_continuous(low = "#fff7ec", high = "#7F0000") + 
+  scale_color_continuous(guide = FALSE, low = "#fff7ec", high = "#7F0000") + 
+  scale_x_continuous(name = "East-west (m)") + # , breaks = NULL, labels = NULL
+  scale_y_continuous(name = "North-south (m)") + # , breaks = NULL, labels = NULL
+  geom_polygon(data = HGlnd, aes(x=long,y=lat,fill=piece,group=group),
+               color="wheat4", fill="cornsilk1",size = 0.1) +   
+  north(HGlnd,location = "topright") +
+  scalebar(HGlnd, dist = 50, dist_unit = "km", st.size = 3.5, 
+           transform = FALSE, location = "bottomleft") +
+  ggtitle(titletxt) +
+  coord_equal(ratio=1) + theme_minimal()
 
