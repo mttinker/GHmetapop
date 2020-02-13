@@ -1,0 +1,12 @@
+name: HGotter
+title: HGotter
+username:
+account: nhydra
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1809105
+bundleId: 2799097
+url: https://nhydra.shinyapps.io/HGotter/
+when: 1581628717.56806
+asMultiple: FALSE
+asStatic: FALSE
