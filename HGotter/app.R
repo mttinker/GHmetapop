@@ -1,12 +1,13 @@
 #
-# This is a Shiny web application for running sea otter population simulaitons
-# On the Island Archipelego of Haida Gwaii
+# This is a Shiny web application for running sea otter population simulations
+#  on the Island Archipelego of Haida Gwaii
 library(shiny)
 library(DT)
 library(shinyWidgets)
 library(rhandsontable)
 library(gtools)
 library(stats)
+library(mvtnorm)
 library(boot)
 library(ggplot2)
 library(rgdal)
@@ -66,9 +67,9 @@ ui <- shinyUI(
                  ),
         tabPanel("Model Output: tables",             
                  tabsetPanel(
-                     tabPanel("Simulation Tabular Summary 1", 
+                     tabPanel("Table 1: Estimated total abundance by year", 
                               tableOutput('sumtable1')),
-                     tabPanel("Simulation Tabular Summary 2", 
+                     tabPanel("Table 2: Summary by coastal section, final year", 
                               tableOutput('sumtable2'))
                  )
         )
@@ -110,10 +111,10 @@ sv <- shinyServer(function(input, output, session){
                 scale_fill_gradient(low = "white", high = "steelblue",limits=c(0, maxD)) +
                 xlab("Year in Future") +
                 ylab("Coastal Block #") +
-                theme(legend.title = element_text(size = 12),
-                      legend.text = element_text(size = 12),
-                      plot.title = element_text(size=14,face="bold"),
-                      axis.title=element_text(size=12),
+                theme(legend.title = element_text(size = 13),
+                      legend.text = element_text(size = 13),
+                      plot.title = element_text(size=15),
+                      axis.title=element_text(size=13),
                       axis.text.y = element_text(size=8),
                       axis.text.x = element_text(angle = 90, hjust = 1)) +
                 labs(fill = "Mean Expected Density",

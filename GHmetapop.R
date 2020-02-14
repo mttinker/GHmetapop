@@ -13,7 +13,7 @@ rm(list = ls())
 # Set User Parameters  ---------------------------------------------------------
 reps = 100           # Number replications for population sims (should use at least 100)
 Nyrs = 25            # Number of years to project population dynamics
-ImmRt = 0            # Immigration rate (avg. net new immigtants per year): 0 = none
+ImmRt = 2            # Immigration rate (avg. net new immigtants per year): 0 = none
 V_sp = 3             # Population front asymptotic wavespeed, km/yr, minimum  
 Emax = 7             # Maximum years before pop "established" (and before range expansion begins)
 K_mean = 3           # Overall mean K density (modified as fxn of habitat variables)
@@ -30,7 +30,7 @@ plotlab = c("Scenario 1")
 # Load necessary libraries -------------------------------------------------
 # NOTE: Ensure following packages are installed
 library(gtools)
-library(BMS)
+library(mvtnorm)
 library(boot)
 library(ggplot2)
 library(rgdal)
@@ -61,14 +61,15 @@ load("./data/GISdata.rdata")
 Yr1 = as.numeric(format(Sys.Date(), "%Y"))
 V_mn = max(.5,V_sp-1)
 V_mx = min(8,V_sp+1)
-Dispers = 2.5  # Over-Dispersion param for Neg Binomial # immigrants per year
+# Inverse-scale param: over-disperseion for Neg Binomial # immigrants per year
+InvScale = 1
+ppar = InvScale/(InvScale+ImmRt)
 KV = K_sig^2  # Variance in K density
 rmax = min(log(1.22),rmax)
-ppar = Dispers/(Dispers+ImmRt/length(Initblk))
 Years = c(Yr1:(Yr1+Nyrs-1))  
 Yrs = seq(1:Nyrs)
 Years = Yrs-1+Yr1
-P = dim(Distmat)[1]  # number blocks (or sub-populations)
+P = nrow(Distmat)  # number blocks (or sub-populations)
 # Initialize population vector
 N0 = numeric(length = P)
 for (i in 1:length(Initblk)){
@@ -132,12 +133,11 @@ Kcalc <- function(PUID,Blk,area,dep,botm,fetch,egrass,parms,Kmn){
 # Estimate mean K for each Block, and mu/sig for log-normal sampling of K: 
 tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,egrass,parms,K_mean); 
 Ktab=tmp$Ktab; Habdns=tmp$Habdns; Areahab = Ktab$Area
-# NOTE: sum((Habdns$Reldens*area))/sum(area) should =~ 1
-#  sum((Habdns$Reldens*area))/sum(area)
-# *** NOTE: if including uncertainty in hab params, comment out next 2 lines:
-# Kmn = Ktab$Kdns; 
-# muK = log(Kmn/sqrt(1+KV/Kmn^2)); sigK = sqrt(log(1+KV/Kmn^2))
 # 
+# Environmental stochasticity: calc SIGMA for correlated random effects
+SIGMA = as.matrix((sig^2)*exp(-.005*Distmat))
+MU_Z = rep(0,P)
+#
 # Dispersal probabilities
 disp = matrix(data = NA,nrow = 4, ncol = P)
 disp[1,] = DispP$Jf
@@ -197,6 +197,8 @@ for (r in 1:reps){
     }
   }
   N[,1, r] = colSums(n[, , 1])
+  # env. stoch., correlated random annual deviations 
+  eps = rmvnorm(Nyrs, MU_Z, SIGMA)
   for (y in 2:Nyrs) {
     #  First, determine if any new blocks occupied (allows for range expansion)
     oc = which(BlokOcc[,y-1]==1)
@@ -230,11 +232,18 @@ for (r in 1:reps){
         }
       }
     }
+    # Calculate annual immigration and distribute randomly among occupied blocks
+    if(ImmRt==0){
+      NImm = rep(0,P)
+    }else{
+      NImm = rnbinom(1,InvScale,ppar)
+      NImm = rmultinom(1,NImm, BlokOcc[,y])
+    }
     # Next, step through blocks and compute dynamics for all occupied blocks
     for (i in 1:P){
       if (BlokOcc[i, y] == 1){
         # Calculate D-D lambda (with stochasticity) and select appropriate vital rates
-        lamstoch = max(.95,min(1.22, round(exp(rmax*(1-(N[i,y-1,r]/K[i])^theta)+rnorm(1,0,sig)),2)))
+        lamstoch = max(.95,min(1.22, round(exp(rmax*(1-(N[i,y-1,r]/K[i])^theta)+eps[y,i]),2)))
         # NOTE: account for "population establishment" phase (allee effect):
         if (y <= E){
           lamstoch = max(.95,min(1.22, round(lamstoch^0.2,2)))
@@ -267,14 +276,9 @@ for (r in 1:reps){
         # Next lines do matrix multiplication (within-block demog transitions)
         nt1 = round(AP%*%nt)
         # NEXT LINES ACCOUNT FOR IMMIGRATION 
-        #  (Assumes outside immigrants arrive at initially occupied block(s) only)
-        if (ImmRt > 0) {
-          if (BlokOcc[i, 1] == 1) {
-            NImm = round(rnbinom(1,Dispers,ppar))
-            ni = rmultinom(1, NImm, c(.1,.05,.4,.45))
-          }else{
-            ni = c(0, 0, 0, 0)
-          }
+        #  (randomly assign age/sex class to immigrants)
+        if (NImm[i]>0) {
+          ni = rmultinom(1, NImm[i], c(.1,.05,.4,.45))              
         } else {
           ni = c(0, 0, 0, 0)
         }
@@ -417,6 +421,7 @@ for (p in 1:P){
   Lo[1] = mean(tmp[,1])
   Hi[1] = mean(tmp[,1])
   for(y in 2:Nyrs){
+    # Optional: load library BMS, and fit density curve
     # dens = as.numeric(density(tmp[,y],adjust = 3))
     # CI =  quantile.density(dens, probs=c(.05, .95))
     # Lo[y] <- max(0,as.numeric(CI[1]))
