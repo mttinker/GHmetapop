@@ -23,7 +23,7 @@ arealist <- as.list(seq(1,NBlks)); names(arealist) <- paste0("CS_",seq(1,NBlks))
 ui <- shinyUI(
     navbarPage(
         theme = shinythemes::shinytheme("cerulean"),
-        "Haida Gwaii Sea Otter Population Model",
+        "Haida Gwaii Sea Otter Population Model (HGotter V 1.0c)",
         tabPanel("Set up Model Simulations",
                  # Sidebar panel: user input
                  sidebarPanel(
@@ -150,7 +150,7 @@ sv <- shinyServer(function(input, output, session){
     # User input sliders etc. 
     output$Reps_slider <- renderUI({
         sliderInput("Reps","Number of times to iterate this population simulation",
-                     min = 50, max = 500, value = 100, step = 10, round = TRUE)
+                     min = 50, max = 1000, value = 500, step = 10, round = TRUE)
     })
     output$Nyrs_slider <- renderUI({
         sliderInput("Nyrs","Number of years for each simulation", min = 10, max = 100,
@@ -166,11 +166,11 @@ sv <- shinyServer(function(input, output, session){
     })
     output$V_sp_slider <- renderUI({
         sliderInput("V_sp","Mean expected range exansion rate (km/yr)", 
-                    min = .5, max = 8, value = 2.5, step = .1, round = FALSE)
+                    min = .5, max = 8, value = 3, step = .1, round = FALSE)
     })    
     output$Kmean_slider <- renderUI({
         sliderInput("Kmean","Overall mean density at K (otters/km2)", 
-                    min = .5, max = 10, value = 3, step = .1, round = FALSE)
+                    min = .5, max = 10, value = 3.5, step = .1, round = FALSE)
     })   
     output$Ksig_slider <- renderUI({
         sliderInput("Ksig","Spatial variation (sd) in density at K (otters/km2)", 
@@ -190,7 +190,7 @@ sv <- shinyServer(function(input, output, session){
     })  
     output$InitN_slider <- renderUI({
         sliderInput("InitN","Initial population size (total otters in Year 1)", 
-                    min = 2, max = 50, value = 10, step = 1, round = TRUE)
+                    min = 2, max = 50, value = 20, step = 1, round = TRUE)
     })  
 })
 # Create Shiny app ----

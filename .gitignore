@@ -3,5 +3,7 @@
 .RData
 .Ruserdata
 data/
+results/
+Figures/
 HGotter/www/
 HGotter/data/

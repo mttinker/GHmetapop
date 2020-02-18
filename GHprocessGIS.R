@@ -16,6 +16,15 @@ Cdata$PU_ID = Cdata$Cell_ID
 # Import movement data from radio tagged sea otters in southern SE Alaska
 # to use for fitting sea otter dispersal kernels:
 SEmoves = read.csv("./data/SE_Ottermoves.csv", header = TRUE)
+CAmoves = read.csv("./data/ottmovesBSMB.csv", header = TRUE)
+ir1 = sample.int(nrow(SEmoves),2000,replace=T)
+ir2 = sample.int(nrow(CAmoves),10000,replace=F)
+ottmoves = data.frame(dist = SEmoves$LCD_km[ir1],Sex=SEmoves$SexN[ir1],
+                Age=SEmoves$Ageglass[ir1])
+ottmoves =rbind(ottmoves, 
+                data.frame(dist = CAmoves$move[ir2],Sex=CAmoves$Sex[ir2]+1, 
+                Age=CAmoves$Ageclass[ir2]+1))
+
 # matrix of x-y coordinates of coastl block centroids
 BLK = as.matrix(cbind(Bdata$Xcoord,Bdata$Ycoord))
 # matrix of x-y coordinates of grid cell centroids
@@ -38,6 +47,7 @@ write.table(Distmat, file = "./data/Distmat.csv",row.names=FALSE,
             na="",col.names=FALSE, sep=",")
 
 # Compute Dispersal parameters--------------------------------------------------
+Distmat =  as.matrix(read.csv("./data/Distmat.csv", header = FALSE)) # Inter-blk LCP distances
 # Fit sea otter dispersal kernels for 4 age/sex classes (M/F juv and adult)
 #  and use these to compute a) probability of emmigration from each block,
 #  and b) dispersal probability matrix, cell i,j = prob that otter emmigrating from 
@@ -49,12 +59,14 @@ cntr = 0
 for (i in 1:2){
   for (j in 1:2){
     cntr = cntr+1
-    ii = which(SEmoves$SexN==i & SEmoves$Ageglass==j)
-    xi = pmax(0.1,SEmoves$LCD_km[ii])
+    # ii = which(SEmoves$SexN==i & SEmoves$Ageglass==j)
+    # xi = pmax(0.1,SEmoves$LCD_km[ii])
+    ii = which(ottmoves$Sex==i &ottmoves$Age==j)
+    xi = pmax(0.1,ottmoves$dist[ii])
     fitd = fitdist(xi,"weibull")
     fitx = fitdist(xi,"exp")
     plot(fitd)
-    cdfcomp(fitx, addlegend=FALSE)
+    # cdfcomp(list(fitd,fitx), addlegend=TRUE)
     Wpar[cntr,1] = fitd$estimate[1]
     Wpar[cntr,2] = fitd$estimate[2]  
     Xpar[cntr,1] = fitx$estimate  
@@ -69,7 +81,7 @@ DispP$Jm = numeric(length =NBlk)
 DispP$Am = numeric(length =NBlk)
 DispPx = DispP
 for (i in 1:NBlk){
-  mndst = mean(sort(Distmat[,i],decreasing=F)[2:3])
+  mndst = 0.75*mean(sort(Distmat[,i],decreasing=F)[2:3])
   DispP$Jf[i] = 1-pweibull(mndst,Wpar[1,1],Wpar[1,2])
   DispP$Af[i] = 1-pweibull(mndst,Wpar[2,1],Wpar[2,2])
   DispP$Jm[i] = 1-pweibull(mndst,Wpar[3,1],Wpar[3,2])
@@ -80,7 +92,6 @@ for (i in 1:NBlk){
   DispPx$Am[i] = 1-pexp(mndst,Xpar[4,1])
 }
 Disp = DispP
-Disp[,2:5] = Disp[,2:5]^1.5
 write.csv(Disp,"./data/GHDispProb.csv",row.names = FALSE)
 # Inter-pop dispersal matrices for each age/sex class
 #  (save each as matrix using write.table)
@@ -128,3 +139,5 @@ write.table(GHDispMatAM, file = "./data/GHDispMatAM.csv",row.names=FALSE,
 # HabAvg = data.frame(cbind(Cdata$PU_ID,HabAvg))
 # colnames(HabAvg) = c('PU_ID',as.character(Bdata$BlockID))  
 # write.csv(HabAvg,"HabAvg.csv",row.names = FALSE)  
+detach(package:gdistance)
+detach(package:raster)

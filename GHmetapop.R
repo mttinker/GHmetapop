@@ -11,20 +11,18 @@
 # 
 rm(list = ls())
 # Set User Parameters  ---------------------------------------------------------
-reps = 100           # Number replications for population sims (should use at least 100)
-Nyrs = 25            # Number of years to project population dynamics
-ImmRt = 2            # Immigration rate (avg. net new immigtants per year): 0 = none
+reps = 500           # Number replications for population sims (should use at least 100)
+Nyrs = 25           # Number of years to project population dynamics
+ImmRt = 0          # Immigration rate (avg. net new immigtants per year): 0 = none
 V_sp = 3             # Population front asymptotic wavespeed, km/yr, minimum  
-Emax = 7             # Maximum years before pop "established" (and before range expansion begins)
-K_mean = 3           # Overall mean K density (modified as fxn of habitat variables)
+Emax = 5             # Maximum years before pop "established" (and before range expansion begins)
+K_mean = 3.5         # Overall mean K density (modified as fxn of habitat variables)
 K_sig = 1            # Stochasticity in K (std. deviation in K density)
 sig = 0.05           # Environmental stochasticity (std. deviation in log-lambda)
-rmax = log(1.22)     # Maximum rate of growth: default = log(1.22), or 22% per year
+rmax = 0.2           # Maximum rate of growth: default = log(1.22), or 22% per year
 theta = 1            # theta parameter for theta-logistic (1 = Ricker model, >1 = delayed DD) 
 Initpop = 20         # Number of animals in initial population (at least 2 adult females)
-Initblk = c(1,2,4)   # List of initially occupied bloaks: e.g. c(1) = Block 1 only
-savename = c("Sc3")
-plotlab = c("Scenario 1")
+Initblk = c(1)# List of initially occupied bloaks: e.g. c(1) = Block 1 only
 # ~~~~~~END User parameters ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # 
 # Load necessary libraries -------------------------------------------------
@@ -38,12 +36,15 @@ library(dplyr)
 library(ggrepel)
 library(ggsn)
 library(reshape2)
+library(doParallel)
+library(abind)
+forloop_packages<-c('gtools','mvtnorm')
 #
 # Load files ----------------------------------------------------------------
 data = read.csv("./data/GHBlockdata.csv", header = TRUE)  # Data for coastal blocks
 Cdata = read.csv("./data/GHCelldata.csv", header = TRUE)  # Data for habitat cells
 Demdat = read.csv("./data/RandDem.csv", header = TRUE)    # Stochastic vital rates
-Distmat =  read.csv("./data/Distmat.csv", header = FALSE) # Inter-blk LCP distances
+Distmat =  as.matrix(read.csv("./data/Distmat.csv", header = FALSE)) # Inter-blk LCP distances
 # Probabilities of dispersal from each block for each age/sex class
 DispP = read.csv("./data/GHDispProb.csv", header = TRUE) 
 # Inter-pop movement matrices: pairwise prob of dispersal based on 
@@ -71,10 +72,11 @@ Yrs = seq(1:Nyrs)
 Years = Yrs-1+Yr1
 P = nrow(Distmat)  # number blocks (or sub-populations)
 # Initialize population vector
-N0 = numeric(length = P)
-for (i in 1:length(Initblk)){
-  N0[Initblk[i]] = round(Initpop/length(Initblk))
-}
+initblks = rep(0,P)
+N0 = rep(0,P)
+initblks[Initblk] = 1
+N0[Initblk] = 2
+N0 = N0 + rmultinom(1,max(1,Initpop-2*length(Initblk)), initblks)
 #  Create Data variables for calculating relative density of Hab cells:
 Cdata$PU_ID = Cdata$Cell_ID
 PUID = Cdata$PU_ID
@@ -132,11 +134,14 @@ Kcalc <- function(PUID,Blk,area,dep,botm,fetch,egrass,parms,Kmn){
 }
 # Estimate mean K for each Block, and mu/sig for log-normal sampling of K: 
 tmp = Kcalc(PUID,Blk,area,dep,botm,fetch,egrass,parms,K_mean); 
-Ktab=tmp$Ktab; Habdns=tmp$Habdns; Areahab = Ktab$Area
+Ktab=tmp$Ktab; Habdns=tmp$Habdns; 
+Areahab = Ktab$Area
+cellscale = tmp$Habdns$Reldens
 # 
 # Environmental stochasticity: calc SIGMA for correlated random effects
 SIGMA = as.matrix((sig^2)*exp(-.005*Distmat))
 MU_Z = rep(0,P)
+zvec = matrix(data = 0,nrow = 4, ncol = 1)
 #
 # Dispersal probabilities
 disp = matrix(data = NA,nrow = 4, ncol = P)
@@ -161,13 +166,18 @@ sad = w/sum(w)                # w=stable distribution, scaled
 #
 # Run Simulations -----------------------------------------------------------
 # Initialize arrays to store results:
-N = array(data = 0, c(P,Nyrs,reps))
-Nmn = matrix(0,nrow=P,ncol=Nyrs)
-Nmn[,1] = N0
-zvec = matrix(data = 0,nrow = 4, ncol = 1)
-#
+# N = array(data = 0, c(P,Nyrs,reps))
+# Nmn = matrix(0,nrow=P,ncol=Nyrs)
+# Nmn[,1] = N0
+# Set up for parallel processing
+acomb <- function(...) abind(..., along=3)
+ncores = min(20,detectCores()-4)
+cl <- makePSOCKcluster(ncores)
+registerDoParallel(cl)
 # Cycle through reps
-for (r in 1:reps){
+Nreps <- foreach(r=1:reps, .combine='acomb', .multicombine=TRUE,
+                 .packages=forloop_packages) %dopar% {
+  N = matrix(0,nrow = P,ncol = Nyrs)
   # Number of years of population establishment (before range expansion begins)
   E = round(runif(1,round(Emax/2),Emax))
   # Determine wavespeed
@@ -189,14 +199,17 @@ for (r in 1:reps){
   for (i in 1:P){
     K[i] = rlnorm(1,muK[i],sigK[i])*Areahab[i]
     # n[1:4, i, 1] = rmultinom(1, N0[i], sad) 
-    if(N0[i]>0){
-      n[1:4, i, 1] =c(0,2,0,0)+ rmultinom(1, N0[i]-2, c(.1,0,.4,.5))
+    if(N0[i]>0 & length(Initblk)==1){
+      n[1:4, i, 1] =c(0,2,0,0)+ rmultinom(1, max(0,N0[i]-2), sad)
+      BlokOcc[i,1] = 1
+    }else if(N0[i]>0 & length(Initblk)>1) {  
+      n[1:4, i, 1] =c(0,1,0,0)+ rmultinom(1, max(0,N0[i]-1), sad)
       BlokOcc[i,1] = 1
     }else{
       n[1:4, i, 1] = c(0,0,0,0)
     }
   }
-  N[,1, r] = colSums(n[, , 1])
+  N[,1] = colSums(n[, , 1])
   # env. stoch., correlated random annual deviations 
   eps = rmvnorm(Nyrs, MU_Z, SIGMA)
   for (y in 2:Nyrs) {
@@ -207,7 +220,7 @@ for (r in 1:reps){
     noc = which(BlokOcc[,y-1]==0)
     # S_noc = data$Block[noc]
     # Loop through unoccupied cells, see if they could be colonized
-    if(sum(noc)>0){
+    if(sum(noc) > 0 & y > E){
       for(k in 1:length(noc)){
         j = noc[k]
         iib = which(Distmat[,j]<50 & Distmat[,j]>0 & BlokOcc[,(y-1)]==1)
@@ -224,8 +237,8 @@ for (r in 1:reps){
               dst = Distmat[Adblk,j]  
               # Probability of colonization: logit fxn of years occupied relative to 
               #   movement of population front given assymptotic wave speed
-              # NOTE: assymtotic wave speed only obtained once exp growth is occuring
-              probexp = inv.logit(2*(sum(BlokOcc[Adblk,1:(y-1)])-alpha*dst))*max(0,sign(y-E))
+              # NOTE: assymtotic wave speed only obtained after establishment phase
+              probexp = inv.logit(2*(sum(BlokOcc[Adblk,1:(y-1)])-alpha*dst)+1.5)
               BlokOcc[j,y] = max(BlokOcc[j,y],rbinom(1,1,probexp))
             }
           }
@@ -243,7 +256,7 @@ for (r in 1:reps){
     for (i in 1:P){
       if (BlokOcc[i, y] == 1){
         # Calculate D-D lambda (with stochasticity) and select appropriate vital rates
-        lamstoch = max(.95,min(1.22, round(exp(rmax*(1-(N[i,y-1,r]/K[i])^theta)+eps[y,i]),2)))
+        lamstoch = max(.95,min(1.22, round(exp(rmax*(1-(N[i,y-1]/K[i])^theta)+eps[y,i]),2)))
         # NOTE: account for "population establishment" phase (allee effect):
         if (y <= E){
           lamstoch = max(.95,min(1.22, round(lamstoch^0.2,2)))
@@ -254,18 +267,9 @@ for (r in 1:reps){
         fsj = Demdat$fs1[j]; fsa = Demdat$fs2[j]; 
         msj = Demdat$ms1[j]; msa = Demdat$ms2[j];
         gf = Demdat$Gf[j]; gm = Demdat$Gm[j];
-        nt[1:4,] = n[1:4,i,y-1]  
-        # Account for demographic stochasticity in R
-        if(sum(nt)<50 & nt[2]>0){ 
-          juvs = rbinom(1,nt[2],br*wr*fsa)
-          Fjuvs = rbinom(1,juvs,.5)
-          Mjuvs = juvs-Fjuvs
-          FF= Fjuvs/nt[2]
-          FM= Mjuvs/nt[2]  
-        }else{
-          FF=br*wr*fsa
-          FM=br*wr*fsa 
-        }
+        nt[1:4,1] = n[1:4,i,y-1]  
+        FF=(br/2)*wr*fsa
+        FM=FF         
         # Construct matrix               
         AP = matrix(c(
           fsj*(1-gf),  FF,      0,           0,    
@@ -274,27 +278,41 @@ for (r in 1:reps){
           0,           0,       msj*gm,      msa),nrow=4,ncol=4,byrow = T)
         #
         # Next lines do matrix multiplication (within-block demog transitions)
-        nt1 = round(AP%*%nt)
+        if (sum(nt)>0){
+          nt1 = AP%*%nt
+          if (sum(nt)>50){
+            nt1 = round(nt1)
+          }else{
+            # randomly round up or down for small pops (demographic stochasticity)
+            nt1[1] = sample(c(ceiling,floor),1)[[1]](nt1[1])
+            nt1[2] = sample(c(ceiling,floor),1)[[1]](nt1[2])
+            nt1[3] = sample(c(ceiling,floor),1)[[1]](nt1[3])
+            nt1[4] = sample(c(ceiling,floor),1)[[1]](nt1[4])
+          }
+        }else{
+          nt1 = zvec
+        }
         # NEXT LINES ACCOUNT FOR IMMIGRATION 
         #  (randomly assign age/sex class to immigrants)
         if (NImm[i]>0) {
-          ni = rmultinom(1, NImm[i], c(.1,.05,.4,.45))              
+          ni = rmultinom(1, NImm[i], sad)              
         } else {
-          ni = c(0, 0, 0, 0)
+          ni = zvec
         }
-        nt1 = pmax(zvec,nt1 + ni)
         # Next, Calculate number of dispersers (with stochasticity)
-        # ****NOTE: no dispersal happens until pop established, and no more than
-        # 1/2 of block residsents can disperse in one year
-        if (y > E & sum(BlokOcc[,y])>1){
-          nd[1] = min(floor(nt1[1]/2),rpois(1,nt1[1]*disp[1,i]))
-          nd[2] = min(floor(nt1[2]/2),rpois(1,nt1[2]*disp[2,i]))
-          nd[3] = min(floor(nt1[3]/2),rpois(1,nt1[3]*disp[3,i]))
-          nd[4] = min(floor(nt1[4]/2),rpois(1,nt1[4]*disp[4,i]))
+        # ****NOTE: no dispersal happens until pop established, 
+        # must be other occupied blocks nearby,
+        #  some individuals of each age class must remain resident
+        recip_poss = length(which(BlokOcc[,y]*Distmat[,i]>0 & BlokOcc[,y]*Distmat[,i]<150))
+        if (y > E & recip_poss>0 & sum(nt1)>0){
+          nd[1] = min(floor(.5*nt1[1]),rpois(1,nt1[1]*disp[1,i]))
+          nd[2] = min(floor(.33*nt1[2]),rpois(1,nt1[2]*disp[2,i]))
+          nd[3] = min(floor(.9*nt1[3]),rpois(1,nt1[3]*disp[3,i]))
+          nd[4] = min(floor(.5*nt1[4]),rpois(1,nt1[4]*disp[4,i]))
         } else {
           nd[1:4] = zvec
         }
-        n[1:4,i,y] = n[1:4,i,y] + nt1-nd
+        n[1:4,i,y] = n[1:4,i,y] + nt1 + ni - nd
         #
         # Now distribute dispersers randomly among "currently occupied" blocks 
         # with probabilities determined appropriately for each age/sex class
@@ -323,16 +341,27 @@ for (r in 1:reps){
       }
     }
     # Tabulate sub-population abundance in each block 
-    N[,y,r] = colSums(n[,,y])
-    Nmn[,y] = Nmn[,y] + N[,y,r]/reps
+    N[,y] = colSums(n[,,y])
+    # Nmn[,y] = Nmn[,y] + N[,y,r]/reps
   }
+  return(N)
 }
+N = Nreps
+Nmn = apply(Nreps,c(1,2),mean)
 Dmn = Nmn
 for (y in 1:Nyrs){
   Dmn[,y] = Nmn[,y]/Areahab
 }
+rm(Nreps)
 #  Do some plots ---------------------------------------------------------
 # Heatmap of Density vs Coastal Block
+if(length(Initblk)==1){
+  plotlab = paste(c(paste0("Initial population of ",Initpop, " located in block"),Initblk),
+                  collapse=" ")
+}else{
+  plotlab = paste(c(paste0("Initial population of ",Initpop, " divided among blocks"),Initblk),
+                collapse=" ")
+}
 dfDens = data.frame(Blocks = (data$BlockID),Dmn)
 colnames(dfDens) = c('Block',as.character(Years))
 df_Dens <- melt(dfDens, id.vars = "Block")
@@ -378,7 +407,9 @@ for(y in 2:Nyrs){
   bootobj = boot(Nsum, mean.fun, R=500, sim="ordinary")
   means[y] = median(bootobj$t)
   SEmean[y] = sd(bootobj$t)
-  tmp = boot.ci(bootobj, type="bca", conf = 0.90); CImn[y,] = tmp$bca[4:5]
+  CImn[y,1] = means[y] - 1.96*SEmean[y]
+  CImn[y,2] = means[y] + 1.96*SEmean[y]
+  # tmp = boot.ci(bootobj, type="bca", conf = 0.90); CImn[y,] = tmp$bca[2:3]
   bootobj = boot(Nsum, CIL.fun, R=500, sim="ordinary")
   Lo[y] = median(bootobj$t)
   bootobj = boot(Nsum, CIH.fun, R=500, sim="ordinary")
@@ -397,6 +428,46 @@ plt2 = (ggplot(Pop_Overall, aes(Year, Mean))+
          ylab("Expected Abundance") +
          ggtitle(titletxt, subtitle=plotlab)) + theme_classic(base_size = 12)
 print(plt2)
+
+# Compute observed rate of range spread:
+# NOTES: 
+# - if starting from one focal area (e.g. south end of island), then there are 
+#  two "mostly independent" coastlines (east and west coast) that range front
+#  is moving along, so observed rate of range spread should be ~ 2x V_sp
+# - block considered "occupied" when >2 otters present, on average
+# - range extent corrected for coastline complexity, to approximate 1-D coast
+#
+CoastStr = 2*mean(sort(Distmat[,1],decreasing=T)[2:3])
+Coastblk = numeric(length = P)
+for (i in 1:P){
+  Coastblk[i] = mean(sort(Distmat[,i],decreasing=F)[2:3])
+}
+CoastAll = sum(Coastblk)
+CoastCrct = CoastStr/CoastAll
+Range = numeric(length = Nyrs) 
+for (i in 1:Nyrs){
+  ii = which(Nmn[,i]>2)
+  tmp = numeric()
+  for(j in 1:length(ii)){
+    tmp[j] = mean(sort(Distmat[,ii[j]],decreasing=F)[2:3])
+  }
+  Range[i] = sum(tmp)*CoastCrct
+}
+df_Rngspr = data.frame(Year = Years[(Emax+1):min(80,Nyrs)],
+                       Range_ext = Range[(Emax+1):min(80,Nyrs)])
+ftV = lm(Range_ext ~ Year, data=df_Rngspr)
+summary(ftV)
+plt3 = ggplot(data = df_Rngspr, aes(x=Year,y=Range_ext)) +
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") + 
+  labs(x="Year",y="Coastal range extent (km)",
+       title = paste("Observed range spread over", Nyrs,"Years,", "V_sp = ",V_sp, "km/yr"),
+       subtitle = paste("Adj R2 = ",signif(summary(ftV)$adj.r.squared, 3),
+                     ", Slope =",signif(ftV$coef[[2]], 3),
+                      ", Approx Corrected Wave Spd (if 1 starting area) =", 
+                      signif(ftV$coef[[2]]*.5,2))) +
+  theme_classic()
+print(plt3)
 
 # Output summary tables ---------------------------------------------------
 # Simmulation summary (Overall):
@@ -440,8 +511,18 @@ Hab_Blocks <- data.frame(Block = BlockIDs, Area = BlockArea,
                          Year=YearsALL, Mean=meansALL, 
                          lower=LoALL,upper=HiALL,Density=dfDens$Density,
                          DensityLO = LoALL/BlockArea, DensityHI = HiALL/BlockArea)
+Hab_Blocks_Fin = Hab_Blocks[which(Hab_Blocks$Year==max(Hab_Blocks$Year)),]
 # Output block summaries of simulation results 
-# write.csv(Hab_Blocks,paste0('Results_GHblocks_',savename,'.csv'),row.names = FALSE)
+write.csv(Hab_Blocks,'./results/Results_HGblocksproject.csv',row.names = FALSE)
+#
+Celldens = numeric(length = nrow(Cdata))
+for (i in 1:P){
+  ii = which(Cdata$BlockID==i)
+  Celldens[ii] = Hab_Blocks_Fin$Density[i]*cellscale[ii]
+}
+CellDensProject = data.frame(CellID = Cdata$Cell_ID,BlockID=Cdata$BlockID,
+                             Cellscale=cellscale, Celldens = Celldens)
+write.csv(CellDensProject,'./results/Results_CellDensProject.csv',row.names = FALSE)
 #
 # MAP OUTPUT:  ------------------------------------------------------
 endvals = Hab_Blocks[Hab_Blocks$Year==max(YearsALL),c(1,7)]
@@ -457,7 +538,7 @@ ggplot() +
                color="wheat4", fill="cornsilk1",size = 0.1) +   
   north(HGlnd,location = "topright") +
   scalebar(HGlnd, dist = 50, dist_unit = "km", st.size = 3.5, 
-           transform = FALSE, location = "bottomleft") +
+          transform = FALSE, location = "bottomleft") +
   ggtitle(titletxt) +
   coord_equal(ratio=1) + theme_minimal()
 

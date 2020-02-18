@@ -3,7 +3,7 @@ runsims <- function(){
   data = read.csv("./data/GHBlockdata.csv", header = TRUE)  # Data for coastal blocks
   Cdata = read.csv("./data/GHCelldata.csv", header = TRUE)  # Data for habitat cells
   Demdat = read.csv("./data/RandDem.csv", header = TRUE)    # Stochastic vital rates
-  Distmat =  read.csv("./data/Distmat.csv", header = FALSE) # Inter-blk LCP distances
+  Distmat =  as.matrix(read.csv("./data/Distmat.csv", header = FALSE)) # Inter-blk LCP distances
   # Probabilities of dispersal from each block for each age/sex class
   DispP = read.csv("./data/GHDispProb.csv", header = TRUE) 
   # Inter-pop movement matrices: pairwise prob of dispersal based on 
@@ -50,10 +50,11 @@ runsims <- function(){
   Years = Yrs-1+Yr1
   P = nrow(Distmat)  # number blocks (or sub-populations)
   # Initialize population vector
-  N0 = numeric(length = P)
-  for (i in 1:length(Initblk)){
-    N0[Initblk[i]] = round(Initpop/length(Initblk))
-  }
+  initblks = rep(0,P)
+  N0 = rep(0,P)
+  initblks[Initblk] = 1
+  N0[Initblk] = 2
+  N0 = N0 + rmultinom(1,max(1,Initpop-2*length(Initblk)), initblks)
   #  Create Data variables for calculating relative density of Hab cells:
   PUID = Cdata$Cell_ID
   Blk = Cdata$BlockID
@@ -129,8 +130,11 @@ runsims <- function(){
       for (i in 1:P){
         K[i] = rlnorm(1,muK[i],sigK[i])*Areahab[i]
         # n[1:4, i, 1] = rmultinom(1, N0[i], sad) 
-        if(N0[i]>0){
-          n[1:4, i, 1] =c(0,2,0,0)+ rmultinom(1, N0[i]-2, c(.1,0,.4,.5))
+        if(N0[i]>0 & length(Initblk)==1){
+          n[1:4, i, 1] =c(0,2,0,0) + rmultinom(1, max(0,N0[i]-2), sad)
+          BlokOcc[i,1] = 1
+        }else if(N0[i]>0 & length(Initblk)>1) {  
+          n[1:4, i, 1] =c(0,1,0,0) + rmultinom(1, max(0,N0[i]-1), sad)
           BlokOcc[i,1] = 1
         }else{
           n[1:4, i, 1] = c(0,0,0,0)
@@ -147,7 +151,7 @@ runsims <- function(){
         noc = which(BlokOcc[,y-1]==0)
         # S_noc = data$Block[noc]
         # Loop through unoccupied cells, see if they could be colonized
-        if(sum(noc)>0){
+        if(sum(noc) > 0 & y > E){
           for(k in 1:length(noc)){
             j = noc[k]
             iib = which(Distmat[,j]<50 & Distmat[,j]>0 & BlokOcc[,(y-1)]==1)
@@ -164,8 +168,8 @@ runsims <- function(){
                   dst = Distmat[Adblk,j]  
                   # Probability of colonization: logit fxn of years occupied relative to 
                   #   movement of population front given assymptotic wave speed
-                  # NOTE: assymtotic wave speed only obtained once exp growth is occuring
-                  probexp = inv.logit(2*(sum(BlokOcc[Adblk,1:(y-1)])-alpha*dst))*max(0,sign(y-E))
+                  # NOTE: assymtotic wave speed only obtained after establishment phase
+                  probexp = inv.logit(2*(sum(BlokOcc[Adblk,1:(y-1)])-alpha*dst)+1.5)
                   BlokOcc[j,y] = max(BlokOcc[j,y],rbinom(1,1,probexp))
                 }
               }
@@ -194,18 +198,9 @@ runsims <- function(){
             fsj = Demdat$fs1[j]; fsa = Demdat$fs2[j]; 
             msj = Demdat$ms1[j]; msa = Demdat$ms2[j];
             gf = Demdat$Gf[j]; gm = Demdat$Gm[j];
-            nt[1:4,] = n[1:4,i,y-1]  
-            # Account for demographic stochasticity in R
-            if(sum(nt)<50 & nt[2]>0){ 
-              juvs = rbinom(1,nt[2],br*wr*fsa)
-              Fjuvs = rbinom(1,juvs,.5)
-              Mjuvs = juvs-Fjuvs
-              FF= Fjuvs/nt[2]
-              FM= Mjuvs/nt[2]  
-            }else{
-              FF=br*wr*fsa
-              FM=br*wr*fsa 
-            }
+            nt[1:4,1] = n[1:4,i,y-1]  
+            FF=(br/2)*wr*fsa
+            FM=FF         
             # Construct matrix               
             AP = matrix(c(
               fsj*(1-gf),  FF,      0,           0,    
@@ -214,27 +209,40 @@ runsims <- function(){
               0,           0,       msj*gm,      msa),nrow=4,ncol=4,byrow = T)
             #
             # Next lines do matrix multiplication (within-block demog transitions)
-            nt1 = round(AP%*%nt)
+            if (sum(nt)>0){
+              nt1 = AP%*%nt
+              if (sum(nt)>50){
+                nt1 = round(nt1)
+              }else{
+                # randomly round up or down for small pops (demographic stochasticity)
+                nt1[1] = sample(c(ceiling,floor),1)[[1]](nt1[1])
+                nt1[2] = sample(c(ceiling,floor),1)[[1]](nt1[2])
+                nt1[3] = sample(c(ceiling,floor),1)[[1]](nt1[3])
+                nt1[4] = sample(c(ceiling,floor),1)[[1]](nt1[4])
+              }
+            }else{
+              nt1 = zvec
+            }
             # NEXT LINES ACCOUNT FOR IMMIGRATION 
             #  (randomly assign age/sex class to immigrants)
             if (NImm[i]>0) {
-              ni = rmultinom(1, NImm[i], c(.1,.05,.4,.45))              
+              ni = rmultinom(1, NImm[i], sad)              
             } else {
-              ni = c(0, 0, 0, 0)
+              ni = zvec
             }
-            nt1 = pmax(zvec,nt1 + ni)
             # Next, Calculate number of dispersers (with stochasticity)
-            # ****NOTE: no dispersal happens until pop established, and no more than
-            # 1/2 of block residsents can disperse in one year
-            if (y > E & sum(BlokOcc[,y])>1){
-              nd[1] = min(floor(nt1[1]/2),rpois(1,nt1[1]*disp[1,i]))
-              nd[2] = min(floor(nt1[2]/2),rpois(1,nt1[2]*disp[2,i]))
-              nd[3] = min(floor(nt1[3]/2),rpois(1,nt1[3]*disp[3,i]))
-              nd[4] = min(floor(nt1[4]/2),rpois(1,nt1[4]*disp[4,i]))
+            # ****NOTE: no dispersal happens until pop established, and 
+            #  some individuals of each age class must remain resident
+            recip_poss = length(which(BlokOcc[,y]*Distmat[,i]>0 & BlokOcc[,y]*Distmat[,i]<150))
+            if (y > E & recip_poss>0 & sum(nt1)>0){
+              nd[1] = min(floor(.4*nt1[1]),rpois(1,nt1[1]*disp[1,i]))
+              nd[2] = min(floor(.25*nt1[2]),rpois(1,nt1[2]*disp[2,i]))
+              nd[3] = min(floor(.9*nt1[3]),rpois(1,nt1[3]*disp[3,i]))
+              nd[4] = min(floor(.4*nt1[4]),rpois(1,nt1[4]*disp[4,i]))
             } else {
               nd[1:4] = zvec
             }
-            n[1:4,i,y] = n[1:4,i,y] + nt1-nd
+            n[1:4,i,y] = n[1:4,i,y] + nt1 + ni - nd
             #
             # Now distribute dispersers randomly among "currently occupied" blocks 
             # with probabilities determined appropriately for each age/sex class
@@ -280,7 +288,6 @@ runsims <- function(){
     names(df_Dens)[2:3] <- c("Year", "Density")
     dfDens = df_Dens[with(df_Dens,order(Block,Year)),]; rm(df_Dens)
     dfDens$Block = as.factor(dfDens$Block)
-    
     # Trend plot of abundance over time
     # Calculate mean trend and CI (use bootstrap CI, 1000 reps)
     mean.fun <- function(dat, idx) mean(dat[idx], na.rm = TRUE)
@@ -301,7 +308,9 @@ runsims <- function(){
       bootobj = boot(Nsum, mean.fun, R=500, sim="ordinary")
       means[y] = median(bootobj$t)
       SEmean[y] = sd(bootobj$t)
-      tmp = boot.ci(bootobj, type="bca", conf = 0.90); CImn[y,] = tmp$bca[4:5]
+      CImn[y,1] = means[y] - 1.96*SEmean[y]
+      CImn[y,2] = means[y] + 1.96*SEmean[y]      
+      # tmp = boot.ci(bootobj, type="bca", conf = 0.90); CImn[y,] = tmp$bca[4:5]
       bootobj = boot(Nsum, CIL.fun, R=500, sim="ordinary")
       Lo[y] = median(bootobj$t)
       bootobj = boot(Nsum, CIH.fun, R=500, sim="ordinary")
