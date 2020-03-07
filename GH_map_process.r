@@ -6,6 +6,7 @@ library(dplyr)
 library(ggrepel)
 library(ggsn)
 library(BMS)
+library(sp)
 
 # library(ggrepel)
 # library(ggmap)
@@ -20,10 +21,15 @@ library(BMS)
 
 setwd("../GIS")
 HGlnd_sp = readOGR("HGland_sm.shp", layer="HGland_sm")
+llprj <-  "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"
+HGlnd_sp <- spTransform(HGlnd_sp, CRS(llprj))
 ggplot(data = HGlnd_sp, aes(x=long,y=lat,group=group)) + 
-  geom_polygon() + coord_equal(ratio=1)
+  geom_polygon() +
+  coord_map("conic", lat0 = 18, xlim = c(-133.3, -130.8), ylim=c(51.8, 54.3))
+
 HGlnd = HGlnd_sp %>% fortify()
 HGblk_sp = readOGR("HG_Blocks_sm.shp", layer="HG_Blocks_sm")
+HGblk_sp <- spTransform(HGblk_sp, CRS(llprj))
 HGblk_sf = HGblk_sp %>% fortify(region = 'BlockID')
 HGblk_sf  = merge(HGblk_sf, HGblk_sp@data, by.x = 'id', by.y = 'BlockID')
 HGblkpts = readOGR("GH_Blocks_pts.shp", layer="GH_Blocks_pts")
@@ -35,7 +41,7 @@ valF = as.factor(val)
 values = data.frame(BlockID = valF,id=val,
                     value = val)
 HGblk = merge(HGblk_sf, values, by.x='id', by.y = 'id')
-rm(HGblk_sf)
+# rm(HGblk_sf)
 
 c24 <- c(
   "dodgerblue2", "#E31A1C", # red
@@ -62,17 +68,19 @@ mapplot = ggplot() +
   scale_color_manual(values = cols, guide = FALSE) + 
   geom_polygon(data = HGlnd, aes(x=long,y=lat,fill=piece,group=group),
                color="wheat4", fill="cornsilk1",size = 0.1) +      
-  geom_text_repel(data=HGblkpts, aes(x=Xcoord, y=Ycoord, label=BlockID), 
-                  force=4, point.padding = 0.1, box.padding = 0.5,
-                  min.segment.length = .05,
-                  nudge_x = -2, nudge_y = 1) +
+  # geom_text_repel(data=HGblkpts, aes(x=Xcoord, y=Ycoord, label=BlockID), 
+  #                 force=4, point.padding = 0.1, box.padding = 0.5,
+  #                 min.segment.length = .05,
+  #                 nudge_x = -2, nudge_y = 1) +
   scale_x_continuous(name = "East-west (m)") + # , breaks = NULL, labels = NULL
   scale_y_continuous(name = "North-south (m)") + # , breaks = NULL, labels = NULL
-  north(HGlnd,location = "topright") +
-  scalebar(HGlnd, dist = 50, dist_unit = "km", st.size = 3.5, 
-           transform = FALSE, location = "bottomleft") +  
+  #north(HGlnd,location = "topright") +
+  # scalebar(HGlnd, dist = 50, dist_unit = "km", st.size = 3.5, 
+  #          transform = FALSE, location = "bottomleft") +  
   ggtitle("Haida Gwaii, coastal sections for sea otter model") +
-  coord_equal(ratio=1) + theme_minimal()
+  coord_map("conic", lat0 = 18, xlim = c(-133.3, -130.8), ylim=c(51.8, 54.3)) +
+  # coord_equal(ratio=1) + 
+  theme_minimal()
 print(mapplot)
 # Example of plotting continuous values (e.g. replace value with densities)
 ggplot() + 
@@ -84,10 +92,12 @@ ggplot() +
   scale_y_continuous(name = "North-south (m)") + # , breaks = NULL, labels = NULL
   geom_polygon(data = HGlnd, aes(x=long,y=lat,fill=piece,group=group),
                color="wheat4", fill="cornsilk1",size = 0.1) +   
-  north(HGlnd,location = "topright") +
-  scalebar(HGlnd, dist = 50, dist_unit = "km", st.size = 3.5, 
-           transform = FALSE, location = "bottomleft") +
-  coord_equal(ratio=1) + theme_minimal()
+  # north(HGlnd,location = "topright") +
+  # scalebar(HGlnd, dist = 50, dist_unit = "km", st.size = 3.5, 
+  #          transform = FALSE, location = "bottomleft") +
+  coord_map("conic", lat0 = 18, xlim = c(-133.3, -130.8), ylim=c(51.8, 54.3)) +
+  # coord_equal(ratio=1) + 
+  theme_minimal()
 
 # Save mapplot and HGlnd and HGblk and HGblkpts
 setwd("../GHmetapop")

@@ -358,28 +358,48 @@ runsims <- function(){
     Hab_Blocks_Fin = Hab_Blocks[which(Hab_Blocks$Year==max(Hab_Blocks$Year)),]     
     datasim = Hab_Blocks_Fin[,c(1,7)]
     HGblk1 = merge(HGblk, datasim, by.x='BlockID', by.y = 'Block')
-    titletxt <- paste0("Sea Otter Population Projection, ", Nyrs," Years")
+    titletxt <- paste0("Projected Sea Otter Population, ", Nyrs," Years")
     mapplot2 = ggplot() + 
       geom_polygon(data=HGblk1, aes(x = long, y = lat, fill = Density, color=Density, group = group),
                    alpha = 1,size = 1) +
       scale_fill_continuous(low = "#fff7ec", high = "#7F0000") + 
       scale_color_continuous(guide = FALSE, low = "#fff7ec", high = "#7F0000") + 
-      scale_x_continuous(name = "East-west (m)") + # , breaks = NULL, labels = NULL
-      scale_y_continuous(name = "North-south (m)") + # , breaks = NULL, labels = NULL
+      scale_x_continuous(name = "Longitude (degrees)") + # , breaks = NULL, labels = NULL
+      scale_y_continuous(name = "Latitude (degrees)") + # , breaks = NULL, labels = NULL
       geom_polygon(data = HGlnd, aes(x=long,y=lat,fill=piece,group=group),
                    color="wheat4", fill="cornsilk1",size = 0.1) +   
-      north(HGlnd,location = "topright") +
-      scalebar(HGlnd, dist = 50, dist_unit = "km", st.size = 3.5, 
-               transform = FALSE, location = "bottomleft") +
+      # north(HGlnd,location = "topright") +
+      # scalebar(HGlnd, dist = 50, dist_unit = "km", st.size = 3.5, 
+      #          transform = FALSE, location = "bottomleft") +
       ggtitle(titletxt) +
-      coord_equal(ratio=1) + theme_minimal()  
+      # coord_equal(ratio=1) + 
+      coord_map("conic", lat0 = 18, xlim = c(-133.3, -130.8), ylim=c(51.8, 54.3)) +
+      theme_minimal()  
   })
+  Tab1 <- Pop_Overall
+  colnames(Tab1) <- c("Year",
+                      "Average Number",
+                      "Lower Estimate (CI)",
+                      "Upper Estimate (CI)",
+                      "Estimation Uncertainty (SE)",
+                      "Lower 95% CI for the Mean",
+                      "Upper 95% CI for the Mean")
+  colnames(Hab_Blocks_Fin) <- c("Coastal Section",
+                      "Area (km2)",
+                      "Year",
+                      "Average Number",
+                      "Lower Estimate (CI)",
+                      "Upper Estimate (CI)",
+                      "Density (#/km2)",
+                      "Lower Density Est.(#/km2)",
+                      "Upper Density Est.(#/km2)")
   # Update "values" structure
   values$Pop_Overall <- Pop_Overall
+  values$Tab1 <- Tab1
   values$dfDens <- dfDens
   values$Hab_Blocks <- Hab_Blocks
   values$Hab_Blocks_Fin <- Hab_Blocks_Fin
   # 
-  ggsave("./www/mapdens.png",plot=mapplot2,width = 8,height = 8,dpi=600)
+  ggsave("./www/mapdens.png",plot=mapplot2,width = 8,height = 8,dpi=300)
   return(datasim)
 }

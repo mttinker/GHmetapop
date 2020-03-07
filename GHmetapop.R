@@ -417,7 +417,7 @@ for(y in 2:Nyrs){
 }
 Pop_Overall <- data.frame(Year=Years,Mean=means,lower=Lo,upper=Hi,
                         SEmean=SEmean,CImeanLo=CImn[,1],CImeanHi=CImn[,2])
-titletxt = paste0("Sea Otter Population Projection, ", Nyrs," Years")
+titletxt = paste0("Projected Sea Otter Population, ", Nyrs," Years")
 maxN = ceiling(Pop_Overall$upper[Nyrs]/100)*100
 plt2 = (ggplot(Pop_Overall, aes(Year, Mean))+
          geom_line(data=Pop_Overall)+
@@ -532,13 +532,15 @@ ggplot() +
                alpha = 1,size = 1) +
   scale_fill_continuous(low = "#fff7ec", high = "#7F0000") + 
   scale_color_continuous(guide = FALSE, low = "#fff7ec", high = "#7F0000") + 
-  scale_x_continuous(name = "East-west (m)") + # , breaks = NULL, labels = NULL
-  scale_y_continuous(name = "North-south (m)") + # , breaks = NULL, labels = NULL
+  scale_x_continuous(name = "Longitude (degrees)") + # , breaks = NULL, labels = NULL
+  scale_y_continuous(name = "Latitude (degrees)") + # , breaks = NULL, labels = NULL
   geom_polygon(data = HGlnd, aes(x=long,y=lat,fill=piece,group=group),
                color="wheat4", fill="cornsilk1",size = 0.1) +   
-  north(HGlnd,location = "topright") +
-  scalebar(HGlnd, dist = 50, dist_unit = "km", st.size = 3.5, 
-          transform = FALSE, location = "bottomleft") +
+  # north(HGlnd,location = "topright") +
+  # scalebar(HGlnd, dist = 50, dist_unit = "km", st.size = 3.5, 
+  #         transform = FALSE, location = "bottomleft") +
   ggtitle(titletxt) +
-  coord_equal(ratio=1) + theme_minimal()
+  # coord_equal(ratio=1) + 
+  coord_map("conic", lat0 = 18, xlim = c(-133.3, -130.8), ylim=c(51.8, 54.3)) +
+  theme_minimal()
 

@@ -5,8 +5,8 @@ account: nhydra
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 1809105
-bundleId: 2809445
+bundleId: 2860092
 url: https://nhydra.shinyapps.io/HGotter/
-when: 1582042321.9563
+when: 1583605613.2689
 asMultiple: FALSE
 asStatic: FALSE
