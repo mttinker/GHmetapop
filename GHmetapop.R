@@ -356,10 +356,10 @@ rm(Nreps)
 #  Do some plots ---------------------------------------------------------
 # Heatmap of Density vs Coastal Block
 if(length(Initblk)==1){
-  plotlab = paste(c(paste0("Initial population of ",Initpop, " located in block"),Initblk),
+  plotlab = paste(c(paste0("Initial population of ",Initpop, " located in section"),Initblk),
                   collapse=" ")
 }else{
-  plotlab = paste(c(paste0("Initial population of ",Initpop, " divided among blocks"),Initblk),
+  plotlab = paste(c(paste0("Initial population of ",Initpop, " divided among sections"),Initblk),
                 collapse=" ")
 }
 dfDens = data.frame(Blocks = (data$BlockID),Dmn)
@@ -373,7 +373,7 @@ plt1 = ggplot(dfDens, aes(Year, Block)) +
   geom_tile(aes(fill = Density), color = "white") +
   scale_fill_gradient(low = "white", high = "steelblue",limits=c(0, maxD)) +
   xlab("Year in Future") +
-  ylab("Coastal Block #") +
+  ylab("Coastal Section #") +
   theme(legend.title = element_text(size = 12),
         legend.text = element_text(size = 12),
         plot.title = element_text(size=14,face="bold"),
@@ -381,9 +381,9 @@ plt1 = ggplot(dfDens, aes(Year, Block)) +
         axis.text.y = element_text(size=8),
         axis.text.x = element_text(angle = 90, hjust = 1)) +
   labs(fill = "Mean Expected Density",
-       title=paste0("Projected Density by Block (otters/km2) after ", Nyrs," Years"),
+       title=paste0("Projected Density by Section (otters/km2) after ", Nyrs," Years"),
        subtitle=plotlab) +
-  ggtitle(paste0("Projected Density by Block (otters/km2) after ", Nyrs," Years"),
+  ggtitle(paste0("Projected Density by Section (otters/km2) after ", Nyrs," Years"),
           subtitle=plotlab)
 print(plt1)
 

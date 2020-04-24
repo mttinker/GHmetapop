@@ -21,6 +21,12 @@ library(reshape2)
 #
 Bdat = read.csv("./data/GHBlockdata.csv", header = TRUE)  # Data for coastal blocks
 NBlks <- nrow(Bdat)
+
+instructfile = "./data/Instruct.txt"
+Blurb1 = readChar(instructfile, file.info(instructfile)$size)
+blurbfile = "./data/Blurb.txt"
+Blurb2 = readChar(blurbfile, file.info(blurbfile)$size)
+
 arealist <- as.list(seq(1,NBlks)); names(arealist) <- paste0("CS_",seq(1,NBlks))
 # User interface part of app
 ui <- shinyUI(
@@ -31,10 +37,14 @@ ui <- shinyUI(
                  # Sidebar panel: user input
                  useShinyjs(),
                  sidebarPanel(
-                     helpText(paste0("INSTRUCTIONS: Please select initial coastal sections and review/adjust ",
-                                    "other user-parameters (using slider controls) BEFORE running simulations. ",
-                                    "Hover mouse over slider controls to see more information about each parameter. ")),
-                     actionButton("RunSim", "Run Simulations Now", class = "btn-primary"),
+                     helpText(Blurb1),
+                     div(style="display:inline-block; horizontal-align: left",
+                         actionButton("RunSim", "Run Simulations Now", 
+                         class = "btn-primary"),width=10),
+                     div(style="display:inline-block; margin-left:100px"),
+                     div(style="display:inline-block; horizontal-align: right",
+                         downloadButton('GetManual', 'Download User Manual')),
+                     div(style="margin-top:10px") ,
                      selectizeInput(
                          "InitSect",
                          label = ("Select initially occupied coastal section(s): refer to map"),
@@ -61,7 +71,8 @@ ui <- shinyUI(
                  ),
                  # Main panel: map of coastal sections 
                  mainPanel(
-                     img(src='HGmap.png', width = 650,height = 850,
+                     helpText(Blurb2),
+                     img(src='HGmap.png', width = 600,height = 800,
                          align = "center"),
                      width = 8
                  )
@@ -75,14 +86,16 @@ ui <- shinyUI(
                                              height = 800,width = 1000)),
                          tabPanel("Density Map",
                                   plotOutput(outputId="sumgraph3",
-                                             height = 800,width = 800))
+                                             height = 800,width = 1200))
                      )
                  ),
         tabPanel("Model Output TABLES",             
                  tabsetPanel(
-                     tabPanel("Table 1: Projected Sea Otter Abundance by Year", 
+                     tabPanel("Table 1: Projected Sea Otter Abundance by Year",
+                              downloadButton('download1',"Download Table 1"),
                               tableOutput('sumtable1')),
                      tabPanel("Table 2: Projected Abundance by Coastal Section in Final Year", 
+                              downloadButton('download2',"Download Table 2"),
                               tableOutput('sumtable2'))
                  )
         )
@@ -94,7 +107,13 @@ sv <- shinyServer(function(input, output, session){
     values <- reactiveValues(Pop_Overall = NULL,dfDens = NULL,Tab1=NULL,
                              Hab_Blocks = NULL,Hab_Blocks_Fin = NULL)
     source('runsims.r', local = TRUE)
-    # Run sims when button pushed
+    # Allow user manual to be downloaded
+    output$GetManual <- downloadHandler(
+        filename = "HGotter_Manual.pdf",
+        content = function(file) {
+            file.copy("www/Manual.pdf", file)
+        })
+    # Run sims when button pushed (but only enable if coastal sections selected)
     observe({
         toggleState(id = "RunSim", condition = input$InitSect)
     })
@@ -163,8 +182,20 @@ sv <- shinyServer(function(input, output, session){
     #
     # Summary table 1 (rangewide sums by year), updated when sims completed
     output$sumtable1 <- renderTable(values$Tab1) 
+    output$download1 <- downloadHandler(
+        filename = function(){"Table1.csv"}, 
+        content = function(fname){
+            write.csv(values$Tab1, fname)
+        }
+    )
     # Summary table 2 (section sums at Final year), updated when sims completed
     output$sumtable2 <- renderTable(values$Hab_Blocks_Fin) 
+    output$download2 <- downloadHandler(
+        filename = function(){"Table2.csv"}, 
+        content = function(fname){
+            write.csv(values$Hab_Blocks_Fin, fname)
+        }
+    )    
     #
     # User input sliders etc. 
     output$Reps_slider <- renderUI({
@@ -187,7 +218,7 @@ sv <- shinyServer(function(input, output, session){
     })
     addPopover(session,"Ephase_slider",
                "Number of years of population establishment: more information",
-               paste0("Newly-established sea otter populations often experience an initial period ",
+               paste0("Newly established sea otter populations often experience an initial period ",
                       "of reduced growth and limited range expansion, as the population becomes established. ",
                       "This establishment period has varied from 5-15 years in previous re-introductions."),
                placement = "top", trigger = "hover")
@@ -197,10 +228,10 @@ sv <- shinyServer(function(input, output, session){
     })
     addPopover(session,"ImmRt_slider",
                "Immigration from outside Haida Gwaii: more information",
-               paste0("The first sea otters at Haida Gwaii were immigants that dispersed from otter populations in neighbouring regions. ",
+               paste0("The first sea otters at Haida Gwaii were immigrants that dispersed from otter populations in neighbouring regions. ",
                       "Population growth at Haida Gwaii can occur from just these initial colonizers, but it is possible that additional ",
                       "otters immigrating from outside Haida Gwaii will enhance population recovery. Here you can set the average ",
-                      "number of new immigrtants expected per year (this can be a decimal, or even 0 if one assumes no further immigration."),
+                      "number of new immigrants expected per year (this can be a decimal, or even 0 if one assumes no further immigration)."),
                placement = "top", trigger = "hover")
     output$V_sp_slider <- renderUI({
         sliderInput("V_sp","Average expected rate of range exansion (km/yr)", 
@@ -220,17 +251,18 @@ sv <- shinyServer(function(input, output, session){
     addPopover(session,"Kmean_slider",
                "Average density at 'K': more information",
                paste0("The long-term equilibrium density eventually reached by a sea otter population in a given area is called carrying capacity, or 'K'. ",
-                      "The population density at K is not constant, but varies as a function of local habitat quality and prey dynamics. The model accounts ",
+                      "The population density at 'K' is not constant, but varies as a function of local habitat quality and prey dynamics. The model accounts ",
                       "for variation in relative density at K due to differences in local habitat quality: this parameter allows the user to adjust the ", 
-                      "archipelego-wide AVERAGE. In other sea otter populations, the regional average density at K is 2-7 otters/km2 habitat."),
+                      "archipelago-wide AVERAGE. In other sea otter populations, the regional average density at 'K' is 2-7 otters/km2 habitat."),
                placement = "top", trigger = "hover")    
     output$Ksig_slider <- renderUI({
-        sliderInput("Ksig","Spatial variation (sd) in density at K (otters/km2)", 
+        sliderInput("Ksig","Spatial variation (SD) in density at 'K' (otters/km2)", 
                     min = .1, max = 3, value = 1, step = .1, round = FALSE)
     })  
     addPopover(session,"Ksig_slider",
-               "Spatial variation in density at 'K': more information",
-               paste0("This parameter allows the user to specify the magnitude of variation in equalibrium densities across coastal sections."),
+               "Spatial variation (SD) in density at 'K': more information",
+               paste0("This parameter allows the user to specify the degree of variation in equilibrium densities across coastal sections. ",
+                      "The higher the number, the greater the variation in equilibrium density among sections."),
                placement = "top", trigger = "hover")        
     output$Rmax_slider <- renderUI({
         sliderInput("Rmax","Maximum annual growth rate (at low density)", 
@@ -240,28 +272,27 @@ sv <- shinyServer(function(input, output, session){
                "Maximum annual growth rate: more information",
                paste0("Sea otter populations tend to show the highest rate of growth at low densities: as local abundance increases, ", 
                       "the growth rate slows until it eventually reaches 0 when population abundance reaches 'K'. This parameter allows the user ",
-                      "to adjust the maximum rate of growth (at low densities): in most sea otter populations this values is qround 0.2"),
+                      "to adjust the maximum rate of growth (at low densities): in most sea otter populations this value is close to 0.2"),
                placement = "top", trigger = "hover")    
     output$Estoch_slider <- renderUI({
-        sliderInput("Estoch","Environmental stochasticity (sd in annual growth rate)", 
+        sliderInput("Estoch","Environmental stochasticity (SD in annual growth rate)", 
                     min = .01, max = .2, value = .05, step = .01, round = FALSE)
     })  
     addPopover(session,"Estoch_slider",
                "Environmental stochasticity: more information",
                paste0("The average rate of growth for a recovering sea otter population in a given area can be predicted as a function of ",
-                      "the local density with respect to carrying capcity, or 'K'. However, year-to-year variation in environmental ",
+                      "the local density with respect to carrying capacity, or 'K'. However, year-to-year variation in environmental ",
                       "conditions and prey population dynamics can lead to unpredictable deviations in growth rate, referred to as 'environmental ",
-                      "stochasticity'. This parameter controls the magnitude of these annual deviations: typical values are 0.02 - 0.08"),
+                      "stochasticity'. This parameter controls the degree of variation in growth rates: typical values are 0.02 - 0.08"),
                placement = "top", trigger = "hover")        
     output$Theta_slider <- renderUI({
-        sliderInput("Theta","Value of theta (for theta-logistic growth)", 
+        sliderInput("Theta","Value of 'theta' (for theta-logistic growth)", 
                     min = .5, max = 2, value = 1, step = .1, round = FALSE)
-        
     })  
     addPopover(session,"Theta_slider",
-               "Value of theta: more information",
+               "Value of 'theta': more information",
                paste0("The average rate of growth for a recovering sea otter population in a given area can be predicted as a function of ",
-                      "the local density with respect to carrying capcity, or 'K'. One of the parameters of this function is 'theta', ",
+                      "the local density with respect to carrying capacity, or 'K'. One of the parameters of this function is 'theta', ",
                       "which determines the onset of reduced growth rates at higher densities: values <1 lead to onset of reduced ",
                       "growth rates at fairly low densities, while values >1 mean that reductions in growth occur only at high densities."),
                placement = "top", trigger = "hover")        
