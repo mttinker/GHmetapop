@@ -292,7 +292,7 @@ Nreps <- foreach(r=1:reps, .combine='acomb', .multicombine=TRUE,
         }else{
           nt1 = zvec
         }
-        # NEXT LINES ACCOUNT FOR IMMIGRATION 
+        # NEXT LINES ACCOUNT FOR IMMIGRATION or RE-INTRODUCTION 
         #  (randomly assign age/sex class to immigrants)
         if (NImm[i]>0) {
           ni = rmultinom(1, NImm[i], sad)              
